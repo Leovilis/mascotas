@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isRegionSlug } from '@/config/regions';
+import { optionalPhoneSchema } from './contact';
 
 const optionalText = (max: number) =>
   z
@@ -28,8 +29,8 @@ export const partnerSchema = z.object({
   city: optionalText(100),
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
-  phone: optionalText(40),
-  whatsapp: optionalText(40),
+  phone: optionalPhoneSchema,
+  whatsapp: optionalPhoneSchema,
   website: optionalUrl,
   instagram: optionalText(100),
   logo_url: optionalUrl,

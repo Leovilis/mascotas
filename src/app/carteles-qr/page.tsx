@@ -5,6 +5,8 @@ import QRCode from 'qrcode';
 import { QrCode, Printer, Download, MapPin, Sparkles, Home, ExternalLink } from 'lucide-react';
 import { useRegion } from '@/components/region/RegionProvider';
 import { RegionConfig, SITE_URL } from '@/config/regions';
+import { getPartnerBusinesses } from '@/services/partners.service';
+import { getPartnerCategory, PartnerBusiness } from '@/types/partners';
 
 export default function CartelesQRPage() {
   const { region } = useRegion();
@@ -17,6 +19,20 @@ function CartelesQRInner({ region }: { region: RegionConfig }) {
   const [campaign, setCampaign] = useState(region.qrCampaignDefault);
   const [targetType, setTargetType] = useState('home');
   const [customOrigin, setCustomOrigin] = useState('');
+  // Comercios amigos destacados: pueden tener su cartel con logo ("Punto amigo")
+  const [featuredPartners, setFeaturedPartners] = useState<PartnerBusiness[]>([]);
+  const [partnerId, setPartnerId] = useState('');
+  const partner = featuredPartners.find((p) => p.id === partnerId) || null;
+
+  useEffect(() => {
+    let cancelled = false;
+    getPartnerBusinesses({ region: region.slug, limit: 200 }).then((list) => {
+      if (!cancelled) setFeaturedPartners(list.filter((p) => p.plan === 'destacado'));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [region.slug]);
 
   const posterRef = useRef<HTMLDivElement>(null);
 
@@ -138,6 +154,34 @@ function CartelesQRInner({ region }: { region: RegionConfig }) {
             Aparece al pie del afiche para registrar el punto físico de difusión.
           </p>
         </div>
+
+        {featuredPartners.length > 0 && (
+          <div className="sm:col-span-2">
+            <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1">
+              Cartel de Comercio Amigo (opcional):
+            </label>
+            <select
+              value={partnerId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setPartnerId(id);
+                const selected = featuredPartners.find((p) => p.id === id);
+                setCampaign(selected ? selected.name : region.qrCampaignDefault);
+              }}
+              className="w-full p-2.5 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 font-bold text-zinc-900 dark:text-white cursor-pointer focus:ring-2 focus:ring-orange-500 focus:outline-none"
+            >
+              <option value="">Sin comercio (cartel general)</option>
+              {featuredPartners.map((p) => (
+                <option key={p.id} value={p.id}>
+                  🏪 {p.name}{p.city ? ` — ${p.city}` : ''}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-[11px] text-zinc-500">
+              Beneficio del plan Destacado: el cartel sale con el logo del comercio y la leyenda &quot;Punto amigo&quot;.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Preview del Cartel Imprimible A4 (Solo esto se imprime, en 1 sola hoja limpia) */}
@@ -194,6 +238,26 @@ function CartelesQRInner({ region }: { region: RegionConfig }) {
             <span className="block text-xs font-mono font-bold text-zinc-700 mt-2 tracking-wider">
               ESCANEA CON LA CÁMARA
             </span>
+          </div>
+        )}
+
+        {/* Sello del comercio amigo (solo plan Destacado) */}
+        {partner && (
+          <div className="flex items-center justify-center gap-3 p-3 rounded-2xl border-2 border-orange-300 bg-orange-50/60">
+            {partner.logo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={partner.logo_url} alt={`Logo de ${partner.name}`} className="w-14 h-14 rounded-xl object-cover bg-white" />
+            ) : (
+              <span className="text-4xl" aria-hidden>{getPartnerCategory(partner.category).emoji}</span>
+            )}
+            <div className="text-left">
+              <p className="text-[10px] font-black uppercase tracking-widest text-orange-700">Punto amigo</p>
+              <p className="text-base font-black text-zinc-900 leading-tight">{partner.name}</p>
+              <p className="text-[11px] font-semibold text-zinc-600">
+                {partner.address}
+                {partner.city ? `, ${partner.city}` : ''}
+              </p>
+            </div>
           </div>
         )}
 

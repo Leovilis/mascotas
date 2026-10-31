@@ -4,6 +4,9 @@ const nextConfig: NextConfig = {
   compress: true,
   poweredByHeader: false,
   reactStrictMode: true,
+  // Permite abrir el servidor de desarrollo desde otros equipos de la red (celular, otra PC).
+  // Agregá acá la IP del equipo desde el que entrás. Solo afecta a `npm run dev`.
+  allowedDevOrigins: ['192.168.100.12', '26.74.145.133'],
   images: {
     formats: ['image/avif', 'image/webp'],
     remotePatterns: [

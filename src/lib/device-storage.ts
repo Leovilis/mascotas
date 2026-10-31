@@ -49,3 +49,51 @@ export function removeCreatedReportId(type: 'lost' | 'found' | 'sighting', id: s
   const current = getStoredArray(key);
   setStoredArray(key, current.filter(item => item !== id));
 }
+
+// ---------------------------------------------------------------------------
+// Tokens de edición: prueban que este dispositivo creó la publicación.
+// Se guardan como { [id]: token }. El "código de gestión" es "id.token" y sirve
+// para administrar la publicación desde otro equipo.
+// ---------------------------------------------------------------------------
+const STORAGE_KEY_TOKENS = 'mascotas_edit_tokens';
+
+function getTokenMap(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY_TOKENS) || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveEditToken(id: string, token: string): void {
+  if (typeof window === 'undefined' || !id || !token) return;
+  try {
+    localStorage.setItem(STORAGE_KEY_TOKENS, JSON.stringify({ ...getTokenMap(), [id]: token }));
+  } catch (e) {
+    console.error('No se pudo guardar el token de edición:', e);
+  }
+}
+
+export function getEditToken(id: string): string | null {
+  return getTokenMap()[id] || null;
+}
+
+/** Código para administrar la publicación desde cualquier equipo: "id.token" */
+export function getManagementCode(id: string): string {
+  const token = getEditToken(id);
+  return token ? `${id}.${token}` : id;
+}
+
+/** Interpreta un código de gestión ("id.token"), un ID suelto o una URL que termine en el ID */
+export function parseManagementCode(raw: string): { id: string; token: string | null } {
+  let value = raw.trim();
+  if (value.includes('/')) {
+    const parts = value.split(/[/?#]/).filter(Boolean);
+    value = parts[parts.length - 1] || value;
+  }
+  value = value.replace(/^code=/, '').split('&')[0];
+  const [id, token] = value.split('.');
+  return { id: (id || '').trim(), token: token && /^[0-9a-f]{64}$/i.test(token) ? token.toLowerCase() : null };
+}

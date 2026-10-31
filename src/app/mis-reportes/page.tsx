@@ -22,10 +22,11 @@ import {
   Search
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { getMyReportIds, saveCreatedReportId } from '@/lib/device-storage';
+import { getMyReportIds, parseManagementCode, saveCreatedReportId, saveEditToken } from '@/lib/device-storage';
 import { getReportsByIdsList, markReportAsReunitedInDb } from '@/services/reports.service';
 import { formatTimeAgo, formatDate, getSpeciesEmoji } from '@/lib/utils';
 import { useRegion } from '@/components/region/RegionProvider';
+import { RecoverCodeForm } from '@/components/forms/RecoverCodeForm';
 
 function MisReportesInner() {
   const { region } = useRegion();
@@ -76,8 +77,8 @@ function MisReportesInner() {
 
   const handleMarkReunited = async (id: string, name: string) => {
     if (confirm(`¿Confirmás que ${name} ya fue reunida con su familia? ❤️`)) {
-      const success = await markReportAsReunitedInDb(id);
-      if (success) {
+      const result = await markReportAsReunitedInDb(id, 'lost');
+      if (result.ok) {
         setMyLostList((prev) =>
           prev.map((r) => (r.id === id ? { ...r, status: 'REUNITED' } : r))
         );
@@ -87,25 +88,28 @@ function MisReportesInner() {
           origin: { y: 0.6 },
         });
       } else {
-        alert('Hubo un inconveniente al actualizar el estado. Por favor reintentá.');
+        alert(result.error || 'Hubo un inconveniente al actualizar el estado. Por favor reintentá.');
       }
     }
   };
 
   const handleLinkManualId = (e?: React.FormEvent, customCode?: string) => {
     if (e) e.preventDefault();
-    let raw = (customCode || linkInputId).trim();
-    if (!raw) return;
+    const input = (customCode || linkInputId).trim();
+    if (!input) return;
 
-    // Si pegaron una URL completa tipo /mascotas-perdidas/uuid
-    if (raw.includes('/')) {
-      const parts = raw.split('/').filter(Boolean);
-      raw = parts[parts.length - 1] || raw;
-    }
+    // Acepta el código de gestión ("id.token"), un ID suelto o una URL de la publicación
+    const { id: raw, token } = parseManagementCode(input);
+    if (!raw) return;
 
     saveCreatedReportId('lost', raw);
     saveCreatedReportId('found', raw);
-    setLinkMessage(`¡Publicación vinculada con éxito! Ya podés gestionarla aquí abajo.`);
+    if (token) saveEditToken(raw, token);
+    setLinkMessage(
+      token
+        ? '¡Publicación vinculada con éxito! Ya podés gestionarla aquí abajo.'
+        : 'Publicación vinculada solo para ver. Para marcarla como reunida necesitás el código de gestión completo (el que se mostró al publicar).'
+    );
     setLinkInputId('');
     loadReports();
   };
@@ -170,6 +174,8 @@ function MisReportesInner() {
             <span>Gestionar Publicación</span>
           </button>
         </form>
+
+        <RecoverCodeForm />
 
         {linkMessage && (
           <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-2 animate-in fade-in">

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { phoneSchema } from './contact';
 
 export const foundReportSchema = z.object({
   // Pet information
@@ -41,9 +42,7 @@ export const foundReportSchema = z.object({
   contact_name: z.string({
     message: 'Por favor ingresá tu nombre para que el dueño sepa con quién habla',
   }).min(2, 'Por favor ingresá tu nombre para que el dueño sepa con quién habla').max(70),
-  contact_phone: z.string({
-    message: 'Por favor ingresá un teléfono o WhatsApp de contacto',
-  }).min(6, 'Por favor ingresá un teléfono o WhatsApp de contacto').max(30),
+  contact_phone: phoneSchema('Por favor ingresá un teléfono o WhatsApp de contacto'),
 });
 
 export type FoundReportInput = z.infer<typeof foundReportSchema>;

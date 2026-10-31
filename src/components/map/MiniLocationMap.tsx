@@ -83,7 +83,8 @@ export default function MiniLocationMap({
           : isFound 
           ? '🏠 Mascota en resguardo / tránsito' 
           : '🐾 Visto en la vía pública';
-        marker.bindPopup(`<b>${title}</b><br/><span style="font-size: 11px;">${subtitle}</span>`);
+        const esc = (v: string) => v.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
+        marker.bindPopup(`<b>${esc(String(title ?? ''))}</b><br/><span style="font-size: 11px;">${esc(String(subtitle ?? ''))}</span>`);
       }
 
       // Círculo de área aproximada

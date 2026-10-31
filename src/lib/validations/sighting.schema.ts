@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { optionalPhoneSchema } from './contact';
 
 export const sightingSchema = z.object({
   lost_report_id: z.string().optional().nullable(),
@@ -18,7 +19,7 @@ export const sightingSchema = z.object({
     message: 'Por favor describí hacia dónde iba o qué viste (mínimo 5 caracteres)',
   }).min(5, 'Por favor describí hacia dónde iba o qué viste (mínimo 5 caracteres)').max(600),
   reporter_name: z.string().max(70).optional().nullable(),
-  contact_phone: z.string().max(50).optional().nullable(),
+  contact_phone: optionalPhoneSchema,
   is_holding: z.boolean().optional(),
 });
 

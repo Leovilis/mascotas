@@ -100,7 +100,85 @@ Es un directorio pago de veterinarias, pet shops, guarderías, peluquerías y re
   - Botón "+1 mes" para registrar un pago.
   - Destacar, activar o desactivar y eliminar.
 - **Migración:** `20261008000003_partner_businesses.sql`. La tabla no es accesible al público; el público lee solo las columnas públicas mediante la función `get_partner_businesses()`.
+- **Más visibilidad (31/10/2026):**
+  - Franja de Destacados en el inicio.
+  - Capa de comercios en el mapa: pines grandes con logo para los Destacados y botón para ocultarlos.
+  - "Avisá a las veterinarias cercanas" en la pantalla de éxito al publicar.
+  - Cartel QR con el logo del comercio ("Punto amigo").
+  - Al armar los popups del mapa se escapan los textos que cargan los usuarios (nombres, direcciones), así nadie puede inyectar código.
 - **Guía completa:** `COMERCIOS-AMIGOS.md`.
+
+### 8. Refuerzo de seguridad (31/10/2026)
+
+| Problema | Solución |
+|---|---|
+| Cualquiera podía vaciar toda la base con `delete_all_reports()` usando la clave pública | La función solo la ejecuta el servidor (service role). El panel la llama vía `/api/admin/reports/delete-all`, que exige la clave de admin y la confirmación "BORRAR TODO". |
+| `/api/reports/delete` y `/api/reports/reunited` no verificaban nada | Ahora exigen la clave de admin **o** el código de gestión del dueño. `reunited` solo acepta estados válidos (ACTIVE/REUNITED, PENDING/VERIFIED). |
+| Login de `/admin` con usuario y contraseña escritos en el código (`emiadmin` / `123456`) | Se entra con `ADMIN_API_KEY`, verificada en el servidor (máximo 10 intentos cada 15 min por IP). `/admin/login` redirige a `/admin`. |
+| Next.js 16.3.4 con vulnerabilidad crítica (ejecución remota de código) | Actualizado a 16.4.3. También se actualizaron zod 4.6.7 y sharp 0.35.5. `npm audit --omit=dev`: 0 vulnerabilidades. |
+| `/api/upload` aceptaba cualquier archivo y tamaño | Solo JPG, PNG, WEBP o GIF, verificado por el contenido real del archivo. Máximo 5 MB y 20 subidas cada 10 minutos por IP. Ya no se guardan imágenes como texto en la base. |
+| Teléfonos y roles de todos los perfiles visibles al público | La tabla `profiles` es privada: cada usuario ve el suyo; moderadores y admins ven todos. |
+
+**Código de gestión para publicaciones anónimas:**
+
+- Al publicar, el navegador genera un código secreto. En la base se guarda solo su huella (hash SHA-256, columna `edit_token_hash`).
+- La pantalla de éxito muestra el **código de gestión** (`id.código`). Sirve para administrar la publicación desde otro equipo, en Mis Reportes.
+- Con solo el ID se puede ver la publicación, pero no modificarla.
+- Las publicaciones creadas antes de este cambio no tienen código: solo el administrador puede marcarlas como reunidas o borrarlas.
+
+**Migración:** `supabase/migrations/20261031000001_security_hardening.sql`.
+
+### 9. Avistamientos confirmados por la familia, aviso contra estafas y denuncias (31/10/2026)
+
+Cualquiera sigue pudiendo reportar un avistamiento sin cuenta, porque es la clave de la app. Pero ahora:
+
+- **Etiqueta de estado** en cada avistamiento, en la ficha de la mascota y en la ficha del avistamiento:
+  - **Sin confirmar** (gris): lo cargó un vecino y la familia todavía no lo revisó.
+  - **Confirmado por la familia** (verde).
+  - **Descartado**: deja de mostrarse en la ficha y en el mapa.
+- **Confirmar o descartar es solo para la familia:** en el dispositivo con el código de gestión aparecen los botones "Es mi mascota", "No es / descartar" y "Deshacer". El servidor verifica el código contra la publicación de la mascota perdida a la que está vinculado el avistamiento (`/api/reports/sighting-review`). El administrador también puede hacerlo.
+- **Aviso "Cuidado con las estafas"** bien visible:
+  - En la ficha de la mascota y en cada avistamiento: no transferir por adelantado, pedir foto actual o videollamada, encontrarse en un lugar público.
+  - En el WhatsApp que recibe la familia cuando alguien reporta un avistamiento, con la aclaración de que la red nunca pide dinero.
+- **Botón "Denunciar esta publicación"** en fichas y avistamientos, sin cuenta. Motivos: pide dinero/estafa, información falsa, spam, inapropiado, duplicada u otro. Máximo 5 denuncias cada 10 minutos por IP.
+- **Bandeja real de denuncias en `/admin`:** reemplaza el ejemplo fijo ("Publicación #394"). Cada denuncia tiene link a la publicación y dos acciones:
+  - **Ocultar publicación:** una perdida o encontrada pasa a `REMOVED` y desaparece del sitio; un avistamiento pasa a `DISMISSED`.
+  - **Desestimar.**
+- **Panel admin:** "Publicaciones por ciudad" muestra solo las ciudades con publicaciones (las 15 con más) y se quitó el texto fijo "emiadmin".
+
+No requiere migración nueva: usa el estado `DISMISSED` y la tabla `moderation_reports`, que ya existían.
+
+### 10. Email de contacto, recuperación del código y validación de teléfonos (31/10/2026)
+
+- **Email opcional al publicar una mascota perdida:** con la aclaración "no se publica". Se usa para:
+  - **Mandar el código de gestión por mail** apenas se publica. La pantalla de éxito confirma "También te lo enviamos a …".
+  - **Avisar por mail a la familia** cuando alguien reporta un avistamiento de su mascota: una sola vez por avistamiento y solo si es reciente.
+  - **Recuperar el código:** en Mis Reportes, "¿Perdiste tu código? Recuperalo con tu email". Se generan **códigos nuevos** (los anteriores dejan de funcionar) y se envían por mail. La respuesta es siempre la misma, para no revelar qué emails están registrados. Máximo 3 pedidos cada 15 minutos por IP.
+- **Privacidad:** el email se guarda en la tabla aparte `report_contacts`, que no se puede leer ni escribir con la clave pública. Solo se registra si quien lo pide tiene el código de gestión de la publicación.
+- **Envío con Resend:** variables `RESEND_API_KEY` y `EMAIL_FROM`. Si no están configuradas, la app funciona igual y solo no se envían los mails. Todos los mails incluyen el aviso contra estafas.
+- **Teléfonos:** en los formularios no se pueden escribir letras (solo números, `+`, espacios, guiones y paréntesis), y se exige que tengan entre 8 y 15 dígitos. Se valida en el navegador y en el servidor, en publicar, avistamientos y comercios.
+- **Email:** se valida el formato al salir del campo y otra vez en el servidor.
+- **Migración:** `supabase/migrations/20261031000002_report_contacts.sql`.
+
+### 11. Captcha anti-bots y límite de publicaciones (31/10/2026)
+
+- **Captcha de Cloudflare Turnstile** (modo "Managed", casi siempre invisible) en: publicar mascota perdida, reportar avistamiento, denunciar y recuperar el código. Si la verificación todavía no terminó, el formulario avisa en vez de enviar.
+- **Las publicaciones se crean en el servidor** (`/api/reports/create`), no más desde el navegador. El servidor:
+  - verifica el captcha con la clave secreta;
+  - vuelve a validar todos los datos;
+  - solo acepta fotos subidas al Storage del proyecto;
+  - calcula la provincia por coordenadas;
+  - genera el código de gestión (en la base queda solo el hash).
+- **Límite por persona (IP), guardado en la base** para que funcione aunque Vercel use varias instancias:
+  - mascotas perdidas o encontradas: 5 por hora;
+  - avistamientos: 15 por hora;
+  - denuncias: 10 por hora (además de 5 cada 10 minutos);
+  - recuperar código: 5 por hora (además de 3 cada 15 minutos).
+  La IP se guarda hasheada en `rate_limit_events` y los registros de más de 2 días se borran solos.
+- **Se cerró el acceso directo a la base:** el público ya no puede insertar en `pets`, `lost_reports`, `found_reports` ni `sightings` con la clave pública (si pudiera, un bot se salteaba el captcha).
+- **Agujero grave corregido:** una migración vieja (`20260910000001_delete_all_reports_rpc.sql`) había dejado políticas "Public Delete …" que permitían a **cualquiera borrar** publicaciones, mascotas, denuncias, notificaciones y QR directo contra Supabase, sin pasar por la app. Se eliminaron.
+- **Variables:** `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (pública) y `TURNSTILE_SECRET_KEY` (solo servidor). Sin la secreta, el captcha no se exige (sirve para desarrollo).
+- **Migración:** `supabase/migrations/20261031000003_server_side_inserts.sql`. **Después de correrla, publicar necesita `SUPABASE_SERVICE_ROLE_KEY`** en `.env` y en Vercel.
 
 ## Pruebas realizadas
 
@@ -116,6 +194,30 @@ Es un directorio pago de veterinarias, pet shops, guarderías, peluquerías y re
   - La función SQL se probó en Postgres: ordena destacados primero y luego por distancia, oculta los vencidos y el rol anon no puede leer la tabla.
   - La API responde 401 con una clave incorrecta, 400 con datos inválidos y 400 con un ID inválido.
   - Las pantallas `/comercios` y `/admin/comercios` se probaron en el navegador con datos de ejemplo.
+- **Seguridad:** se probó contra una réplica local de Supabase (Postgres 16 + PostGIS + PostgREST, con los roles anon/authenticated/service_role y las ocho migraciones):
+  - Con la clave pública: `delete_all_reports` da "permission denied", `profiles` devuelve vacío y el UPDATE directo de un aviso no modifica nada.
+  - Marcar como reunido o borrar un aviso sin código o con un código falso da 403; un estado inventado da 400.
+  - El dueño con su código puede marcarlo como reunido y borrarlo; el admin, con su clave, puede reactivarlo.
+  - Borrar todo exige clave y confirmación.
+  - `/api/upload` rechaza un .txt disfrazado de imagen y un archivo de 6 MB, y acepta un PNG válido.
+  - Flujo completo en el navegador: publicar → código de gestión → en otro navegador, con solo el ID no puede marcarla como reunida y con el código completo sí → login de admin con clave mala rechazado y con la correcta entra.
+- **Avistamientos y denuncias:**
+  - Sin código, o con el código de otra publicación, no se puede confirmar ni descartar un avistamiento (403). La familia con su código sí. Una decisión inválida da 400.
+  - La denuncia se guarda; un motivo inválido da 400; con la clave pública no se pueden leer las denuncias.
+  - El admin las lista y, al ocultar, el avistamiento pasa a `DISMISSED` y deja de aparecer en la lista pública.
+  - En el navegador: un visitante ve "Sin confirmar" y el aviso de estafas, pero no los botones de la familia, y puede denunciar. La familia confirma y ve "Confirmado por la familia". El admin ve la denuncia real en la bandeja.
+- **Emails** (con un servidor que simula Resend):
+  - Al publicar con email llega el mail con el código; al reportar un avistamiento, el aviso a la familia. Repetir el aviso del mismo avistamiento no reenvía.
+  - El email no aparece en los datos públicos del aviso y `report_contacts` está bloqueada para la clave pública. Registrar un email sin código da error.
+  - Recuperación: el código viejo deja de funcionar y el nuevo del mail sí funciona. El cuarto pedido seguido queda bloqueado.
+  - Al escribir "388abc 41x2-3456" en el teléfono queda "388 412-3456". "leo@mal" muestra error de formato.
+- **Captcha y límites** (con un servidor que simula la verificación de Cloudflare):
+  - Publicar sin token, con un token rechazado o con una foto de otro sitio da error; con token válido se crea, con la provincia correcta y el hash del código.
+  - La sexta publicación de una misma IP en una hora da 429.
+  - Denunciar y recuperar código sin token dan error; con token funcionan.
+  - El código que genera el servidor sirve para borrar la publicación.
+  - Con la clave pública, insertar en `pets` o borrar `lost_reports` da "permission denied".
+  - En el navegador: el widget aparece, el avistamiento se registra enviando el token y queda guardado el código en el dispositivo; la denuncia con captcha llega.
 - **Navegador (Playwright):**
   - Con GPS simulado detecta Jujuy, Santa Fe, CABA y Río Negro.
   - La elección manual se respeta aunque el GPS diga otra cosa.
@@ -124,8 +226,10 @@ Es un directorio pago de veterinarias, pet shops, guarderías, peluquerías y re
 
 ## Pendientes y observaciones
 
-- **Correr las tres migraciones antes de publicar.** Si faltan las de regiones, los listados y el mapa quedan vacíos y las publicaciones nuevas fallan.
-- **Configurar en Vercel:** `ADMIN_API_KEY` y `SUPABASE_SERVICE_ROLE_KEY` (obligatorias), y `NEXT_PUBLIC_PARTNER_CONTACT_WHATSAPP` para el botón "Quiero sumar mi comercio".
+- **Correr las migraciones antes de publicar, en orden** (`20261008000001`, `…02`, `…03`, `20261031000001`, `20261031000002` y `20261031000003`). Si falta la de seguridad, publicar falla, porque la app ya envía la columna `edit_token_hash`.
+- **Emails (Resend):** crear la cuenta, verificar un dominio propio en *Domains* y cargar `RESEND_API_KEY` y `EMAIL_FROM` en `.env` y en Vercel. Sin dominio, Resend solo deja mandarte mails a vos mismo, desde `onboarding@resend.dev`.
+- **Instalar las dependencias actualizadas:** `npm install` (Next 16.4.3).
+- **Configurar en Vercel:** `ADMIN_API_KEY` y `SUPABASE_SERVICE_ROLE_KEY` (obligatorias; sin `ADMIN_API_KEY` nadie puede entrar a `/admin`), y `NEXT_PUBLIC_PARTNER_CONTACT_WHATSAPP` para el botón "Quiero sumar mi comercio". Hay una plantilla en `.env.example`.
 - **Revisar coordenadas:** las de las ciudades son aproximadas (±1 km). Conviene revisarlas en las provincias que se lancen primero.
 - **Variables opcionales en Vercel:**
   - `NEXT_PUBLIC_SITE_URL`: la URL real del sitio, para los QR.
@@ -134,11 +238,9 @@ Es un directorio pago de veterinarias, pet shops, guarderías, peluquerías y re
 - **Fronteras:**
   - Carmen de Patagones queda en Río Negro porque está a 2 km de Viedma.
   - Encarnación (Paraguay) queda en Misiones.
-- **Seguridad (anterior a estos cambios, URGENTE):**
-  - El login de `/admin` es solo visual: usuario y contraseña están escritos en el código del navegador (`emiadmin` / `123456`).
-  - Las rutas `/api/reports/delete` y `/api/reports/reunited` no verifican nada, así que cualquiera puede borrar publicaciones.
-  - `/api/upload` sube fotos con la clave de administrador sin validar.
-  - Solución propuesta: proteger esas rutas con la misma verificación `ADMIN_API_KEY` (`src/lib/admin-auth.ts`) que ya usan los Comercios Amigos.
+- **Seguridad: lo que todavía falta:**
+  - Turnstile: cargar `NEXT_PUBLIC_TURNSTILE_SITE_KEY` y `TURNSTILE_SECRET_KEY` también en Vercel, y agregar el dominio real del sitio en el widget de Cloudflare (*Hostname Management*).
+  - El administrador usa una única clave compartida. Si va a haber varios moderadores, conviene pasar a cuentas con Supabase Auth y el rol de `profiles`.
 - **Next.js 16:** avisa que `middleware.ts` está deprecado y pasa a llamarse `proxy.ts`. Por ahora sigue funcionando.
 
 ## Archivos
@@ -154,6 +256,19 @@ Es un directorio pago de veterinarias, pet shops, guarderías, peluquerías y re
 - `src/components/region/RegionSelector.tsx`
 - las dos migraciones
 - `REGIONES.md` (guía técnica)
+- Seguridad:
+  - `src/lib/report-auth.ts`
+  - `src/lib/edit-token.ts`
+  - `src/lib/admin-key-storage.ts`
+  - `src/app/api/admin/verify/route.ts`
+  - `src/app/api/admin/reports/delete-all/route.ts`
+  - `supabase/migrations/20261031000001_security_hardening.sql`
+  - `.env.example`
+- Captcha y límites:
+  - `src/lib/turnstile.ts`, `src/lib/db-rate-limit.ts`
+  - `src/components/forms/TurnstileWidget.tsx`
+  - `src/app/api/reports/create/route.ts`
+  - `supabase/migrations/20261031000003_server_side_inserts.sql`
 - Comercios Amigos:
   - `src/types/partners.ts`
   - `src/services/partners.service.ts`
@@ -162,7 +277,7 @@ Es un directorio pago de veterinarias, pet shops, guarderías, peluquerías y re
   - `src/app/api/admin/partners/*`
   - `src/app/comercios/*`
   - `src/app/admin/comercios/page.tsx`
-  - `src/components/partners/*`
+  - `src/components/partners/*` (incluye `FeaturedPartnersStrip.tsx`)
   - `COMERCIOS-AMIGOS.md`
 - este resumen
 

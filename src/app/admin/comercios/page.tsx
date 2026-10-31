@@ -31,6 +31,7 @@ import {
 } from '@/services/partners.service';
 import { uploadPetPhoto } from '@/services/reports.service';
 import { cn } from '@/lib/utils';
+import { sanitizePhoneInput } from '@/lib/validations/contact';
 
 const LocationPicker = dynamic(() => import('@/components/map/LocationPicker'), {
   ssr: false,
@@ -582,11 +583,11 @@ export default function AdminComerciosPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className={labelCls}>WhatsApp</label>
-                <input value={form.whatsapp ?? ''} onChange={(e) => update('whatsapp', e.target.value)} className={input} placeholder={getRegion(form.region_slug).phoneExampleCompact} />
+                <input inputMode="tel" value={form.whatsapp ?? ''} onChange={(e) => update('whatsapp', sanitizePhoneInput(e.target.value))} className={input} placeholder={getRegion(form.region_slug).phoneExampleCompact} />
               </div>
               <div>
                 <label className={labelCls}>Teléfono</label>
-                <input value={form.phone ?? ''} onChange={(e) => update('phone', e.target.value)} className={input} />
+                <input inputMode="tel" value={form.phone ?? ''} onChange={(e) => update('phone', sanitizePhoneInput(e.target.value))} className={input} />
               </div>
               <div>
                 <label className={labelCls}>Instagram</label>

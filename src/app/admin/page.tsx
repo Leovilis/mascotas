@@ -42,10 +42,12 @@ import {
 } from 'lucide-react';
 import { DEFAULT_REGION } from '@/config/regions';
 import { regionForPoint } from '@/config/region-geo';
+import { readAdminKey, verifyAdminKey, writeAdminKey } from '@/lib/admin-key-storage';
+import { ModerationInbox } from '@/components/admin/ModerationInbox';
 
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [username, setUsername] = useState('');
+  const [adminKey, setAdminKey] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -81,38 +83,48 @@ export default function AdminPage() {
     }
   };
 
+  // Si ya hay una clave guardada en esta pestaña, se vuelve a verificar en el servidor
   useEffect(() => {
-    const isAuth = localStorage.getItem('admin_auth') === 'true';
-    setIsAuthenticated(isAuth);
-    if (isAuth) {
-      loadData();
-    }
+    const saved = readAdminKey();
+    if (!saved) return;
+    let cancelled = false;
+    verifyAdminKey(saved).then((res) => {
+      if (cancelled) return;
+      if (res.ok) {
+        setAdminKey(saved);
+        setIsAuthenticated(true);
+        loadData();
+      } else {
+        writeAdminKey(null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
     setIsLoadingLogin(true);
-
-    setTimeout(() => {
-      if (username.trim() === 'emiadmin' && password === '123456') {
-        localStorage.setItem('admin_auth', 'true');
-        document.cookie = 'admin_session=active; path=/; max-age=86400';
-        setIsAuthenticated(true);
-        setIsLoadingLogin(false);
-        loadData();
-      } else {
-        setIsLoadingLogin(false);
-        setLoginError('Credenciales inválidas. Solo el Super Admin tiene acceso a este panel.');
-      }
-    }, 400);
+    const key = password.trim();
+    const res = await verifyAdminKey(key);
+    setIsLoadingLogin(false);
+    if (res.ok) {
+      writeAdminKey(key);
+      setAdminKey(key);
+      setIsAuthenticated(true);
+      setPassword('');
+      loadData();
+    } else {
+      setLoginError(res.error || 'Clave inválida.');
+    }
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('admin_auth');
-    document.cookie = 'admin_session=; path=/; max-age=0';
+    writeAdminKey(null);
+    setAdminKey('');
     setIsAuthenticated(false);
-    setUsername('');
     setPassword('');
     setDeleteMessage(null);
   };
@@ -126,7 +138,7 @@ export default function AdminPage() {
     setTogglingId(reportId);
     setActionFeedback(null);
     try {
-      const ok = await toggleReportStatusInDb(reportId, currentStatus, type);
+      const ok = await toggleReportStatusInDb(reportId, currentStatus, type, adminKey);
       if (ok) {
         const isCurrentlyReunited = currentStatus === 'REUNITED' || currentStatus === 'VERIFIED';
         const nextStatus = isCurrentlyReunited 
@@ -192,7 +204,7 @@ export default function AdminPage() {
     }
     setDeletingId(reportId);
     try {
-      const ok = await deleteSingleReportFromDb(reportId, petId, type);
+      const ok = await deleteSingleReportFromDb(reportId, petId, type, adminKey);
       if (ok) {
         setReportsList((prev) => prev.filter((r) => r.id !== reportId));
         if (stats) {
@@ -220,7 +232,7 @@ export default function AdminPage() {
     setIsDeleting(true);
     setDeleteMessage(null);
     try {
-      const res = await deleteAllReportsFromDb();
+      const res = await deleteAllReportsFromDb(adminKey);
       if (res.success) {
         setDeleteMessage({ type: 'success', text: res.message });
         const updated = await getAdminStats();
@@ -250,7 +262,7 @@ export default function AdminPage() {
               Acceso Super Admin
             </h1>
             <p className="text-xs text-zinc-500">
-              Esta sección está protegida. Ingresá tus credenciales de administrador para continuar.
+              Ingresá la clave de administrador (variable ADMIN_API_KEY del servidor). Se verifica en el servidor y se guarda solo en esta pestaña.
             </p>
           </div>
 
@@ -264,25 +276,7 @@ export default function AdminPage() {
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1">
-                Usuario
-              </label>
-              <div className="relative">
-                <User className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 transform -translate-y-1/2" />
-                <input
-                  id="admin-username"
-                  type="text"
-                  required
-                  placeholder="Usuario Super Admin"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-full pl-10 pr-3.5 py-3 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-zinc-900 dark:text-zinc-100"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1">
-                Contraseña
+                Clave de administrador
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 transform -translate-y-1/2" />
@@ -291,6 +285,7 @@ export default function AdminPage() {
                   type={showPassword ? 'text' : 'password'}
                   required
                   placeholder="••••••••"
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-10 py-3 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-zinc-900 dark:text-zinc-100"
@@ -355,7 +350,7 @@ export default function AdminPage() {
         <div>
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-xs font-bold uppercase mb-1">
             <ShieldCheck className="w-3.5 h-3.5" />
-            Super Admin: emiadmin
+            Super Admin
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-zinc-900 dark:text-white">
             Panel de Control y Moderación
@@ -454,7 +449,14 @@ export default function AdminPage() {
           </h3>
 
           <div className="space-y-2.5">
-            {stats.reports_by_city.map((city) => (
+            {stats.reports_by_city.filter((c) => c.lost_count > 0).length === 0 && (
+              <p className="text-xs text-zinc-400 py-2">Todavía no hay publicaciones con ciudad asignada.</p>
+            )}
+            {[...stats.reports_by_city]
+              .filter((c) => c.lost_count > 0)
+              .sort((a, b) => b.lost_count - a.lost_count)
+              .slice(0, 15)
+              .map((city) => (
               <div key={city.city_name} className="flex items-center justify-between text-xs py-1.5 border-b border-zinc-100 dark:border-zinc-800 last:border-0">
                 <span className="font-medium text-zinc-700 dark:text-zinc-300">{city.city_name}</span>
                 <span className="font-bold px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
@@ -492,49 +494,8 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Bandeja de Moderación y Denuncias */}
-        <div className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-extrabold text-sm text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-rose-500" />
-              Denuncias Pendientes
-            </h3>
-            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300">
-              {stats.total_pending_moderations} pendientes
-            </span>
-          </div>
-
-          {stats.total_pending_moderations === 0 ? (
-            <div className="p-6 text-center text-xs text-zinc-400">
-              ✅ No hay denuncias de spam ni contenido sospechoso pendientes de revisión.
-            </div>
-          ) : (
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 text-xs space-y-2">
-              <div className="font-bold text-rose-800 dark:text-rose-300">
-                1 Reporte marcado por posible estafa / dinero
-              </div>
-              <p className="text-zinc-600 dark:text-zinc-400">
-                Publicación #394: Solicitud de dinero por adelantado en comentarios.
-              </p>
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => alert('Publicación ocultada preventivamente.')}
-                  className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-[10px] transition-colors"
-                >
-                  Ocultar Publicación
-                </button>
-                <button
-                  type="button"
-                  onClick={() => alert('Denuncia desestimada.')}
-                  className="px-2.5 py-1 bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold rounded-lg text-[10px] transition-colors"
-                >
-                  Desestimar
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        {/* Bandeja de Moderación y Denuncias (datos reales) */}
+        <ModerationInbox adminKey={adminKey} />
 
       </div>
 

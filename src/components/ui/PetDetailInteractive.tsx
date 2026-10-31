@@ -15,7 +15,6 @@ import {
   X, 
   Sparkles, 
   CheckCircle2, 
-  ShieldAlert,
   ChevronLeft,
   Home,
   FileText,
@@ -41,6 +40,9 @@ import { useRegion } from '@/components/region/RegionProvider';
 import { SITE_URL } from '@/config/regions';
 import { regionForPoint } from '@/config/region-geo';
 import { NearbyPartners } from '@/components/partners/NearbyPartners';
+import { ScamWarning } from '@/components/ui/ScamWarning';
+import { ReportFlagButton } from '@/components/ui/ReportFlagButton';
+import { SightingOwnerActions, SightingStatusBadge } from '@/components/ui/SightingReview';
 
 const MiniLeafletMap = dynamic(
   () => import('@/components/map/MiniLocationMap'),
@@ -66,6 +68,7 @@ export default function PetDetailInteractive({ report, sightings }: PetDetailInt
   const petName = capitalizeWords(pet?.name || (isLost ? 'Mascota perdida' : 'Mascota encontrada'));
   const reportDate = isLost ? report.last_seen_date : report.found_date;
   const location = isLost ? report.last_seen_location : report.found_location;
+  const [sightingList, setSightingList] = useState(sightings);
   // La provincia sale de la ubicación de la publicación (no de la del visitante)
   const { region: viewerRegion } = useRegion();
   const reportCoords = parseGeoLocation(location);
@@ -499,7 +502,7 @@ export default function PetDetailInteractive({ report, sightings }: PetDetailInt
               <div>
                 <h3 className="text-xl font-black text-zinc-900 dark:text-white flex items-center gap-2">
                   <Eye className="w-5 h-5 text-amber-500" />
-                  Avistamientos Reportados ({sightings.length})
+                  Avistamientos Reportados ({sightingList.length})
                 </h3>
                 <p className="text-xs text-zinc-500">
                   Puntos donde los vecinos informaron haber visto a {capitalizeWords(petName)}. Hacé click en cualquier avistamiento para ver su ficha completa.
@@ -514,7 +517,7 @@ export default function PetDetailInteractive({ report, sightings }: PetDetailInt
               </Link>
             </div>
 
-            {sightings.length === 0 ? (
+            {sightingList.length === 0 ? (
               <div className="p-8 text-center rounded-3xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 text-zinc-500 text-sm space-y-3">
                 <p className="font-medium">
                   Aún no hay avistamientos registrados para {capitalizeWords(petName)}. Si la viste en la calle, podés informar la hora y lugar para orientar la búsqueda de la familia.
@@ -529,9 +532,9 @@ export default function PetDetailInteractive({ report, sightings }: PetDetailInt
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-3">
-                {sightings.map((s: any) => (
+                {sightingList.map((s: any) => (
+                  <div key={s.id} className="space-y-2">
                   <Link
-                    key={s.id}
                     href={`/mascota-avistada/${s.id}`}
                     className="group p-4 sm:p-5 rounded-2xl bg-white dark:bg-zinc-900 hover:bg-amber-50/40 dark:hover:bg-amber-950/20 border-2 border-amber-200/90 dark:border-amber-900/50 hover:border-amber-400 dark:hover:border-amber-600 shadow-xs hover:shadow-md transition-all flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between cursor-pointer"
                   >
@@ -556,6 +559,7 @@ export default function PetDetailInteractive({ report, sightings }: PetDetailInt
                             <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
                             Avistamiento
                           </span>
+                          <SightingStatusBadge status={s.status} />
                           <span className="text-xs text-zinc-400 font-medium">
                             • {formatTimeAgo(s.sighting_date)}
                           </span>
@@ -576,20 +580,28 @@ export default function PetDetailInteractive({ report, sightings }: PetDetailInt
                       <span>→</span>
                     </div>
                   </Link>
+                  <div className="px-1">
+                    <SightingOwnerActions
+                      sightingId={s.id}
+                      lostReportId={report.id}
+                      status={s.status}
+                      onChange={(status) =>
+                        // Si la familia lo descarta, sigue visible para ella (con la etiqueta) hasta recargar, por si quiere deshacer
+                        setSightingList((prev) => prev.map((x) => (x.id === s.id ? { ...x, status } : x)))
+                      }
+                    />
+                  </div>
+                  </div>
                 ))}
               </div>
             )}
           </div>
         )}
 
-        {/* Prevención de Fraude y Seguridad */}
-        <div className="p-4 rounded-2xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-zinc-500">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
-            <span>
-              <strong>Prevención de Estafas</strong>: Nunca realices transferencias de dinero por adelantado ni entregues datos bancarios.
-            </span>
-          </div>
+        {/* Prevención de estafas y denuncias */}
+        <ScamWarning variant={isLost ? 'owner' : 'finder'} />
+        <div className="flex justify-end">
+          <ReportFlagButton entityType={isLost ? 'lost_report' : 'found_report'} entityId={report.id} />
         </div>
 
       </div>

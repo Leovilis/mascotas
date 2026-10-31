@@ -30,6 +30,9 @@ import {
 import { useRegion } from '@/components/region/RegionProvider';
 import { regionForPoint } from '@/config/region-geo';
 import { NearbyPartners } from '@/components/partners/NearbyPartners';
+import { ScamWarning } from '@/components/ui/ScamWarning';
+import { ReportFlagButton } from '@/components/ui/ReportFlagButton';
+import { SightingOwnerActions, SightingStatusBadge } from '@/components/ui/SightingReview';
 
 // Cargar mapa dinámico sin SSR
 const MiniLeafletMap = dynamic(
@@ -61,6 +64,7 @@ export default function SightingDetailInteractive({ sighting }: SightingDetailPr
   const linkedPet = lostReport?.pet;
   const ownerProfile = lostReport?.profile;
 
+  const [sightingStatus, setSightingStatus] = useState<string>(sighting.status || 'PENDING');
   const isHolding = sighting.is_holding === true || (typeof sighting.description === 'string' && (sighting.description.includes('EN TRÁNSITO') || sighting.description.includes('🏠')));
 
   const photo = sighting.photo_url;
@@ -146,6 +150,11 @@ export default function SightingDetailInteractive({ sighting }: SightingDetailPr
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 text-xs font-black uppercase tracking-wider border border-amber-300 dark:border-amber-800/80">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping" />
                 <span>🐾 Visto en la Vía Pública</span>
+              </div>
+            )}
+            {sighting.lost_report_id && (
+              <div className="flex flex-wrap items-center gap-2">
+                <SightingStatusBadge status={sightingStatus} />
               </div>
             )}
             <h1 className="text-2xl sm:text-3xl font-black text-zinc-950 dark:text-white tracking-tight">
@@ -263,7 +272,18 @@ export default function SightingDetailInteractive({ sighting }: SightingDetailPr
           </div>
         )}
 
+        {/* La familia confirma o descarta este avistamiento (solo en el dispositivo con su código de gestión) */}
+        {sighting.lost_report_id && (
+          <SightingOwnerActions
+            sightingId={sighting.id}
+            lostReportId={sighting.lost_report_id}
+            status={sightingStatus}
+            onChange={setSightingStatus}
+          />
+        )}
+
         {/* Contacto Directo con quien lo Vio / Tiene en Tránsito */}
+        {rawReporterPhone && <ScamWarning variant="owner" />}
         {rawReporterPhone && (
           <div className="p-4 sm:p-5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-left space-y-3 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
@@ -390,6 +410,10 @@ export default function SightingDetailInteractive({ sighting }: SightingDetailPr
             <Share2 className="w-4 h-4" />
             <span>Compartir</span>
           </button>
+        </div>
+
+        <div className="flex justify-end">
+          <ReportFlagButton entityType="sighting" entityId={sighting.id} />
         </div>
 
         {/* Comercios amigos cercanos al avistamiento */}

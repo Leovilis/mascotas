@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import PhotoUploader from '@/components/forms/PhotoUploader';
@@ -11,9 +11,14 @@ import { PlusCircle, ShieldAlert, Sparkles, CheckCircle2, ArrowRight, Clock } fr
 import { createLostReportInDb } from '@/services/reports.service';
 import { getLocalDatetimeInputValue, parseLocalInputToIso } from '@/lib/utils';
 import { useRegion } from '@/components/region/RegionProvider';
+import { NearbyPartners } from '@/components/partners/NearbyPartners';
+import { isValidEmail, sanitizePhoneInput } from '@/lib/validations/contact';
+import { registerContactEmail } from '@/services/reports.service';
+import { TurnstileWidget, TurnstileHandle, TURNSTILE_ENABLED } from '@/components/forms/TurnstileWidget';
 
 const FRIENDLY_LOST_LABELS: Record<string, string> = {
   name: 'Nombre de la mascota',
+  contact_email: 'Email',
   species: 'Tipo de animal',
   size: 'Tamaño aproximado',
   primary_color: 'Color principal',
@@ -30,7 +35,11 @@ export default function PublicarPerdidaPage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successId, setSuccessId] = useState<string | null>(null);
+  const [managementCode, setManagementCode] = useState<string | null>(null);
+  const [emailStatus, setEmailStatus] = useState<'idle' | 'sending' | 'sent' | 'saved' | 'error'>('idle');
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const turnstileRef = useRef<TurnstileHandle>(null);
 
   const [formData, setFormData] = useState<Partial<LostReportInput>>({
     species: 'dog',
@@ -69,20 +78,34 @@ export default function PublicarPerdidaPage() {
       return;
     }
 
+    if (TURNSTILE_ENABLED && !turnstileToken) {
+      alert('Esperá un segundo a que termine la verificación de seguridad (abajo del formulario) y volvé a tocar el botón.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      // Inserción real en PostgreSQL / Supabase
-      const newId = await createLostReportInDb(validation.data);
+      // Se publica a través del servidor (captcha + límite por persona)
+      const newId = await createLostReportInDb(validation.data, turnstileToken);
       if (typeof window !== 'undefined') {
-        const { saveCreatedReportId } = await import('@/lib/device-storage');
+        const { saveCreatedReportId, getManagementCode } = await import('@/lib/device-storage');
         saveCreatedReportId('lost', newId);
+        setManagementCode(getManagementCode(newId));
+      }
+      // Email privado: guardarlo y mandar el código de gestión (si lo dejó)
+      if (validation.data.contact_email) {
+        setEmailStatus('sending');
+        registerContactEmail(newId, 'lost', validation.data.contact_email).then((r) =>
+          setEmailStatus(r.ok ? (r.sent ? 'sent' : 'saved') : 'error')
+        );
       }
       setIsSubmitting(false);
       setSuccessId(newId);
     } catch (err: any) {
       setIsSubmitting(false);
-      alert(`Error al guardar en base de datos: ${err.message || 'Verificá tu conexión a Supabase'}`);
+      turnstileRef.current?.reset(); // cada verificación sirve para un solo envío
+      alert(`No se pudo publicar: ${err.message || 'Verificá tu conexión'}`);
     }
   };
 
@@ -113,7 +136,7 @@ export default function PublicarPerdidaPage() {
             <button
               type="button"
               onClick={() => {
-                navigator.clipboard.writeText(successId);
+                navigator.clipboard.writeText(managementCode || successId);
                 setCopiedCode(true);
                 setTimeout(() => setCopiedCode(false), 2500);
               }}
@@ -123,16 +146,19 @@ export default function PublicarPerdidaPage() {
             </button>
           </div>
           <div className="font-mono text-xs font-bold bg-white dark:bg-zinc-900 p-3 rounded-xl border border-orange-200 dark:border-orange-900/60 select-all break-all text-orange-950 dark:text-orange-200">
-            {successId}
+            {managementCode || successId}
           </div>
           <p className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-relaxed">
-            Guardá este código. Podés ingresarlo en <Link href={`/mis-reportes?code=${successId}`} className="font-bold underline text-orange-600 dark:text-orange-400">Mis Reportes</Link> para administrar tu publicación desde cualquier equipo y marcar a tu mascota como encontrada cuando vuelva a casa.
+            {emailStatus === 'sent' && <strong className="block text-emerald-700 dark:text-emerald-400 mb-1">✓ También te lo enviamos a {formData.contact_email}.</strong>}
+            {emailStatus === 'sending' && <span className="block text-zinc-500 mb-1">Enviando el código a tu email…</span>}
+            {emailStatus === 'error' && <strong className="block text-rose-600 mb-1">No pudimos registrar tu email: copiá el código ahora.</strong>}
+            Guardá este código: es tu llave privada, no lo compartas. Podés ingresarlo en <Link href={`/mis-reportes?code=${encodeURIComponent(managementCode || successId)}`} className="font-bold underline text-orange-600 dark:text-orange-400">Mis Reportes</Link> para administrar tu publicación desde cualquier equipo y marcar a tu mascota como encontrada cuando vuelva a casa.
           </p>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
           <Link
-            href={`/mis-reportes?code=${successId}`}
+            href={`/mis-reportes?code=${encodeURIComponent(managementCode || successId)}`}
             className="px-5 py-3 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
           >
             <span>🔑</span> Administrar en Mis Reportes
@@ -171,6 +197,22 @@ export default function PublicarPerdidaPage() {
             Ver Ficha
           </button>
         </div>
+
+        {/* Avisar a comercios amigos cercanos (no aparece si no hay ninguno en la zona) */}
+        {typeof formData.latitude === 'number' && typeof formData.longitude === 'number' && (
+          <div className="text-left">
+            <NearbyPartners
+              region={region.slug}
+              lat={formData.latitude}
+              lng={formData.longitude}
+              category={null}
+              maxKm={10}
+              title="Avisá a las veterinarias cercanas"
+              subtitle="Muchas mascotas perdidas terminan en una veterinaria o las ve alguien del barrio. Mandales el aviso con un toque."
+              whatsappText={`Hola! Se perdió mi mascota ${formData.name || ''} cerca de ${formData.approximate_address || 'su local'}. ¿Me ayudan a difundir? Ficha con fotos: ${typeof window !== 'undefined' ? window.location.origin : ''}/mascotas-perdidas/${successId}`}
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -450,12 +492,48 @@ export default function PublicarPerdidaPage() {
                 type="tel"
                 placeholder={`Ej: ${region.phoneExample}`}
                 value={formData.contact_phone || ''}
-                onChange={(e) => setFormData((prev) => ({ ...prev, contact_phone: e.target.value }))}
+                inputMode="tel"
+                onChange={(e) => setFormData((prev) => ({ ...prev, contact_phone: sanitizePhoneInput(e.target.value) }))}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
               />
+              {formErrors.contact_phone && <p className="text-xs text-rose-600 mt-1">{formErrors.contact_phone}</p>}
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1">
+                Email <span className="font-normal text-zinc-500">(opcional, no se publica)</span>
+              </label>
+              <input
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                placeholder="Ej: nombre@gmail.com"
+                value={formData.contact_email || ''}
+                onChange={(e) => setFormData((prev) => ({ ...prev, contact_email: e.target.value.replace(/\s/g, '') }))}
+                onBlur={() => {
+                  const v = (formData.contact_email || '').trim();
+                  setFormErrors((prev) => {
+                    const next = { ...prev };
+                    if (v && !isValidEmail(v)) next.contact_email = 'El email no tiene un formato válido (ej: nombre@gmail.com)';
+                    else delete next.contact_email;
+                    return next;
+                  });
+                }}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+              {formErrors.contact_email ? (
+                <p className="text-xs text-rose-600 mt-1">{formErrors.contact_email}</p>
+              ) : (
+                <p className="text-[11px] text-zinc-500 mt-1">
+                  Te mandamos tu código de gestión y te avisamos si alguien ve a tu mascota. Si perdés el código, lo recuperás con este mail.
+                </p>
+              )}
             </div>
           </div>
         </div>
+
+        {/* Verificación anti-spam (Cloudflare Turnstile) */}
+        <TurnstileWidget ref={turnstileRef} onToken={setTurnstileToken} className="flex justify-center" />
 
         {/* Submit */}
         <button

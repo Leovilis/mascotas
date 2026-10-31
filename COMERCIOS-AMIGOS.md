@@ -3,26 +3,19 @@
 Directorio pago de veterinarias, pet shops, guarderías, peluquerías y refugios, por provincia.
 **Publicar y buscar mascotas sigue siendo gratis**: quienes pagan son los comercios.
 
-## Qué ve el público
+## Dónde aparecen y qué incluye cada plan
 
-| Dónde | Qué aparece |
-|---|---|
-| `/comercios` | Directorio de la provincia actual, con filtro por categoría y "Ordenar por cercanía" (GPS). Botones de WhatsApp, Llamar, Cómo llegar, Instagram y Web. |
-| Ficha de mascota perdida/encontrada | "Veterinarias cerca de donde se perdió / del hallazgo": hasta 3 veterinarias a menos de 15 km. El WhatsApp ya lleva un mensaje con el link de la ficha. |
-| Ficha de avistamiento | "Veterinarias cerca del avistamiento" (lectura de microchip). |
-| Menú y pie de página | Link a "Comercios Amigos". |
+| Lugar | Básico | Destacado |
+|---|---|---|
+| Directorio `/comercios` (filtro por categoría y orden por cercanía) | ✔ | ✔ primero, con borde naranja y sello "Comercio amigo" |
+| Fichas de mascotas perdidas, encontradas y avistamientos: "Veterinarias cerca…" (hasta 3, a 15 km) | ✔ | ✔ primero |
+| Pantalla de éxito al publicar una mascota perdida o un avistamiento: "Avisá a las veterinarias cercanas" (hasta 3, a 10 km; el WhatsApp ya lleva el link de la ficha) | ✔ | ✔ primero |
+| Pin en el mapa `/mapa` (botón 🏪 Comercios para mostrarlos u ocultarlos) | ✔ pin chico con el ícono de la categoría | ✔ pin grande, con su logo y borde naranja |
+| Franja "Comercios amigos de {provincia}" en el inicio | — | ✔ (el orden se mezcla en cada visita) |
+| Cartel QR con su logo y la leyenda "Punto amigo" (`/carteles-qr`) | — | ✔ |
 
-Si no hay comercios cargados en la zona, los bloques no se muestran (no quedan huecos vacíos).
-
-## Planes
-
-| Plan | Qué incluye |
-|---|---|
-| **Básico** | Aparece en el directorio y en las fichas cercanas. |
-| **Destacado** | Primero en todas las listas (antes que los más cercanos), con borde naranja y sello "Comercio amigo". |
-
-Cada comercio tiene **"Pago hasta"**. Cuando pasa esa fecha **deja de mostrarse solo**, sin que tengas que hacer nada.
-Si se deja vacío, no vence nunca (útil para refugios sin cargo).
+- **"Pago hasta":** cuando pasa esa fecha, el comercio **deja de mostrarse solo** en todos lados, sin que tengas que hacer nada. Si se deja vacío, no vence nunca (útil para refugios sin cargo).
+- **Lugares vacíos:** si no hay comercios cargados en la zona, los bloques no se muestran.
 
 ## Panel de administración: `/admin/comercios`
 
@@ -65,5 +58,5 @@ Las variables `NEXT_PUBLIC_*` se leen al compilar: después de cambiarlas, hay q
 
 - **Empezar por las veterinarias:** su argumento es "las mascotas perdidas terminan en tu veterinaria; aparecé cuando el dueño las busca".
 - **Ofrecer un mes gratis** a los primeros 5 a 10 comercios de cada ciudad, para que el directorio no arranque vacío.
-- **Plan destacado + carteles QR para la vidriera:** generá el QR desde `/carteles-qr` con el nombre del comercio como lugar.
+- **Plan destacado + carteles QR para la vidriera:** en `/carteles-qr` elegí el comercio y el cartel sale con su logo y "Punto amigo". Llevalo impreso cuando vayas a venderle el plan.
 - **Refugios sin cargo:** dejalos activos sin fecha de vencimiento. Suman confianza y contenido.

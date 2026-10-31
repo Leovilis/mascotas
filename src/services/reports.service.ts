@@ -4,7 +4,8 @@ import { LostReportInput } from '@/lib/validations/lost-report.schema';
 import { FoundReportInput } from '@/lib/validations/found-report.schema';
 import { SightingInput } from '@/lib/validations/sighting.schema';
 import { calculateDistanceMeters } from '@/lib/utils';
-import { DEFAULT_REGION, REGION_LIST, getClientRegionSlug, getRegion } from '@/config/regions';
+import { getEditToken, saveEditToken } from '@/lib/device-storage';
+import { DEFAULT_REGION, REGION_LIST } from '@/config/regions';
 
 const DEFAULT_LAT = DEFAULT_REGION.center.lat;
 const DEFAULT_LNG = DEFAULT_REGION.center.lng;
@@ -16,15 +17,6 @@ const DEFAULT_LNG = DEFAULT_REGION.center.lng;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function byRegion<Q extends { eq: (column: string, value: any) => Q }>(query: Q, region?: string | null): Q {
   return region ? query.eq('region_slug', region) : query;
-}
-
-/**
- * Provincia a la que pertenece un punto nuevo (por coordenadas, o la que eligió el usuario).
- * Import dinámico: los polígonos de límites solo se descargan al publicar.
- */
-async function regionSlugForNewReport(lat: number, lng: number): Promise<string> {
-  const { regionForPoint } = await import('@/config/region-geo');
-  return regionForPoint(lat, lng, getRegion(getClientRegionSlug())).slug;
 }
 
 /**
@@ -112,8 +104,12 @@ export async function uploadPetPhoto(file: File): Promise<string> {
     if (res.ok) {
       const data = await res.json();
       if (data.url) return data.url;
+    } else if (res.status >= 400 && res.status < 500) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'No se pudo subir la imagen.');
     }
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.message && !/fetch/i.test(err.message)) throw err;
     // Si fetch falla en SSR o entorno sin /api/upload, intentar cliente directo
   }
 
@@ -134,13 +130,10 @@ export async function uploadPetPhoto(file: File): Promise<string> {
     });
 
   if (error) {
+    // Antes se guardaba la imagen como texto (data URL) en la base: se quitó porque
+    // permitía cargar archivos enormes en la base de datos.
     console.warn(`Aviso en Storage Supabase: ${error.message}.`);
-    // Fallback: Generar Data URL
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.readAsDataURL(file);
-    });
+    throw new Error('No se pudo subir la imagen. Probá de nuevo en unos minutos.');
   }
 
   // Obtener la URL pública del archivo subido
@@ -195,7 +188,8 @@ export async function getUnifiedMapData(
       byRegion(
         supabase
           .from('sightings')
-          .select('id, sighting_date, location, approximate_address, photo_url, status, description, created_at, lost_report_id, lost_report:lost_reports(id, pet:pets(name, species, photos))'),
+          .select('id, sighting_date, location, approximate_address, photo_url, status, description, created_at, lost_report_id, lost_report:lost_reports(id, pet:pets(name, species, photos))')
+          .neq('status', 'DISMISSED'),
         region
       )
         .order('created_at', { ascending: false })
@@ -642,6 +636,7 @@ export async function getSightingsForReport(lostReportId: string): Promise<Sight
     .from('sightings')
     .select('*')
     .eq('lost_report_id', lostReportId)
+    .neq('status', 'DISMISSED') // los descartados por la familia o el moderador no se muestran
     .order('sighting_date', { ascending: false });
 
   if (error) {
@@ -735,196 +730,41 @@ export async function getMapMarkers(
   return markers;
 }
 
-// 7. Insertar Mascota Perdida (Guardar en Supabase)
-export async function createLostReportInDb(input: LostReportInput): Promise<string> {
-  const supabase = createBrowserClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const userId = authData?.user?.id;
-
-  // 1. Insertar mascota en tabla `pets`
-  const { data: petData, error: petError } = await supabase
-    .from('pets')
-    .insert({
-      name: input.name,
-      species: input.species,
-      breed: input.breed || null,
-      gender: input.gender,
-      size: input.size,
-      primary_color: input.primary_color,
-      secondary_color: input.secondary_color || null,
-      distinctive_features: input.distinctive_features || null,
-      photos: input.photos,
-      owner_id: userId || null,
-    })
-    .select('id')
-    .single();
-
-  if (petError || !petData) {
-    console.error('Error insertando pet:', petError);
-    throw new Error(`Error al guardar mascota: ${petError?.message}`);
+// 7-9. Altas de publicaciones: se hacen en el servidor (/api/reports/create),
+// que verifica el captcha (Turnstile), limita publicaciones por persona y guarda el hash del código de gestión.
+async function createReportOnServer(
+  type: 'lost' | 'found' | 'sighting',
+  data: LostReportInput | FoundReportInput | SightingInput,
+  turnstileToken: string | null
+): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch('/api/reports/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, data, turnstileToken }),
+    });
+  } catch {
+    throw new Error('No se pudo conectar con el servidor. Revisá tu conexión.');
   }
-
-  const street = (input.street_name || input.approximate_address || '').trim();
-  const num = (input.street_number || '').trim();
-  const barrio = (input.neighborhood || '').trim();
-  
-  let formattedAddress = street;
-  if (num && !street.includes(num)) {
-    formattedAddress = `${formattedAddress} ${num}`;
+  const json = (await res.json().catch(() => ({}))) as { id?: string; token?: string; error?: string };
+  if (!res.ok || !json.id || !json.token) {
+    throw new Error(json.error || 'No se pudo publicar. Probá de nuevo.');
   }
-  if (barrio) {
-    formattedAddress = `${formattedAddress}, B° ${barrio.replace(/^b[°ºa-z.]*\s*/i, '')}`;
-  }
-
-  // 2. Insertar reporte con coordenadas PostGIS
-  const { data: reportData, error: reportError } = await supabase
-    .from('lost_reports')
-    .insert({
-      pet_id: petData.id,
-      user_id: userId || null,
-      last_seen_date: input.last_seen_date,
-      last_seen_location: `POINT(${input.longitude} ${input.latitude})`,
-      region_slug: await regionSlugForNewReport(input.latitude, input.longitude),
-      approximate_address: formattedAddress,
-      description: input.description,
-      contact_phone: input.contact_phone || null,
-      contact_name: input.contact_name || null,
-      contact_phone_public: input.contact_phone_public,
-      status: 'ACTIVE',
-    })
-    .select('id')
-    .single();
-
-  if (reportError || !reportData) {
-    console.error('Error insertando lost_report:', reportError);
-    throw new Error(`Error al crear publicación: ${reportError?.message}`);
-  }
-
-  if (userId && input.contact_phone) {
-    try {
-      await supabase.from('profiles').update({
-        phone: input.contact_phone,
-        full_name: input.contact_name,
-      }).eq('id', userId);
-    } catch (e) {
-      console.warn('No se pudo actualizar profile con phone:', e);
-    }
-  }
-
-  return reportData.id;
+  saveEditToken(json.id, json.token);
+  return json.id;
 }
 
-// 8. Insertar Mascota Encontrada en Supabase
-export async function createFoundReportInDb(input: FoundReportInput): Promise<string> {
-  const supabase = createBrowserClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const userId = authData?.user?.id;
-
-  const { data: petData, error: petError } = await supabase
-    .from('pets')
-    .insert({
-      name: 'Encontrado',
-      species: input.species,
-      breed: input.breed || null,
-      gender: input.gender,
-      size: input.size,
-      primary_color: input.primary_color,
-      secondary_color: input.secondary_color || null,
-      distinctive_features: input.distinctive_features || null,
-      photos: input.photos,
-      owner_id: userId || null,
-    })
-    .select('id')
-    .single();
-
-  if (petError || !petData) {
-    throw new Error(`Error al guardar mascota: ${petError?.message}`);
-  }
-
-  const foundStreet = (input.street_name || input.approximate_address || '').trim();
-  const foundNum = (input.street_number || '').trim();
-  const foundBarrio = (input.neighborhood || '').trim();
-
-  let formattedFoundAddress = foundStreet;
-  if (foundNum && !foundStreet.includes(foundNum)) {
-    formattedFoundAddress = `${formattedFoundAddress} ${foundNum}`;
-  }
-  if (foundBarrio) {
-    formattedFoundAddress = `${formattedFoundAddress}, B° ${foundBarrio.replace(/^b[°ºa-z.]*\s*/i, '')}`;
-  }
-
-  const { data: reportData, error: reportError } = await supabase
-    .from('found_reports')
-    .insert({
-      pet_id: petData.id,
-      finder_id: userId || null,
-      found_date: input.found_date,
-      found_location: `POINT(${input.longitude} ${input.latitude})`,
-      region_slug: await regionSlugForNewReport(input.latitude, input.longitude),
-      approximate_address: formattedFoundAddress,
-      is_holding: input.is_holding,
-      description: input.description,
-      contact_name: input.contact_name || null,
-      contact_phone: input.contact_phone || null,
-      status: 'ACTIVE',
-    })
-    .select('id')
-    .single();
-
-  if (reportError || !reportData) {
-    throw new Error(`Error al crear reporte de hallazgo: ${reportError?.message}`);
-  }
-
-  return reportData.id;
+export function createLostReportInDb(input: LostReportInput, turnstileToken: string | null): Promise<string> {
+  return createReportOnServer('lost', input, turnstileToken);
 }
 
-// 9. Insertar Avistamiento en Supabase
-export async function createSightingInDb(input: SightingInput): Promise<string> {
-  const supabase = createBrowserClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const userId = authData?.user?.id;
+export function createFoundReportInDb(input: FoundReportInput, turnstileToken: string | null): Promise<string> {
+  return createReportOnServer('found', input, turnstileToken);
+}
 
-  // Si lost_report_id no es un UUID válido o es vacío, asignamos null
-  const validLostReportId = input.lost_report_id && input.lost_report_id.length === 36 && input.lost_report_id !== '11111111-1111-1111-1111-111111111111'
-    ? input.lost_report_id
-    : null;
-
-  let finalDescription = input.description || '';
-  if (input.is_holding) {
-    finalDescription = `🏠 EN TRÁNSITO EN MI CASA / PATIO (El animal está a salvo esperando a su familia).\n\n${finalDescription}`;
-  } else {
-    finalDescription = `🐾 VISTO EN LA VÍA PÚBLICA (Fue visto deambulando en el lugar indicado).\n\n${finalDescription}`;
-  }
-  if (input.contact_phone && input.contact_phone.trim()) {
-    finalDescription = `${finalDescription}\n\n📞 Contacto / WhatsApp: ${input.contact_phone.trim()}`;
-  }
-  if (input.reporter_name && input.reporter_name.trim()) {
-    finalDescription = `${finalDescription}\n\n👤 Reportado por: ${input.reporter_name.trim()}`;
-  }
-
-  const { data, error } = await supabase
-
-    .from('sightings')
-    .insert({
-      lost_report_id: validLostReportId,
-      user_id: userId || null,
-      location: `POINT(${input.longitude} ${input.latitude})`,
-      region_slug: await regionSlugForNewReport(input.latitude, input.longitude),
-      approximate_address: input.approximate_address,
-      sighting_date: input.sighting_date,
-      photo_url: input.photo_url || null,
-      description: finalDescription,
-      status: 'PENDING',
-    })
-    .select('id')
-    .single();
-
-  if (error || !data) {
-    console.error('Error insertando sighting:', error);
-    throw new Error(`Error al registrar avistamiento: ${error?.message || 'Error en base de datos'}`);
-  }
-
-  return data.id;
+export function createSightingInDb(input: SightingInput, turnstileToken: string | null): Promise<string> {
+  return createReportOnServer('sighting', input, turnstileToken);
 }
 
 // 9.1 Obtener Ficha de Avistamiento por ID con datos completos
@@ -1037,36 +877,36 @@ export async function getReportsByIdsList(type: 'lost' | 'found' | 'sighting', i
 }
 
 // 10. Confirmar Reunificación de Mascota (Cambiar estado a REUNITED)
-export async function markReportAsReunitedInDb(reportId: string): Promise<boolean> {
-  // 1. Intentar a través del endpoint API con Service Role Key (evita bloqueos de RLS)
+/**
+ * El dueño marca su publicación como reunida (o la reactiva).
+ * Requiere el token de edición guardado en este dispositivo.
+ */
+export async function markReportAsReunitedInDb(
+  reportId: string,
+  type: 'lost' | 'found' | 'sighting' = 'lost',
+  status?: string
+): Promise<{ ok: boolean; error?: string }> {
+  const editToken = getEditToken(reportId);
+  if (!editToken) {
+    return {
+      ok: false,
+      error: 'Este dispositivo no tiene el código de gestión de la publicación. Ingresá el código completo en Mis Reportes.',
+    };
+  }
+  const nextStatus = status ?? (type === 'sighting' ? 'VERIFIED' : 'REUNITED');
   try {
     const res = await fetch('/api/reports/reunited', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reportId }),
+      body: JSON.stringify({ reportId, type, status: nextStatus, editToken }),
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success) {
-        return true;
-      }
-    }
-  } catch (errApi) {
-    console.warn('Aviso: endpoint /api/reports/reunited no disponible, probando llamada directa:', errApi);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) return { ok: true };
+    return { ok: false, error: data.error || 'No se pudo actualizar la publicación.' };
+  } catch (err) {
+    console.error('Error en markReportAsReunitedInDb:', err);
+    return { ok: false, error: 'No se pudo conectar con el servidor.' };
   }
-
-  // 2. Fallback directo a Supabase Client
-  const supabase = createBrowserClient();
-  const { error } = await supabase
-    .from('lost_reports')
-    .update({ status: 'REUNITED', updated_at: new Date().toISOString() })
-    .eq('id', reportId);
-
-  if (error) {
-    console.error('Error al marcar como reunida en Supabase:', error);
-    return false;
-  }
-  return true;
 }
 
 // 11. Obtener Estadísticas Globales para Super Admin
@@ -1140,52 +980,24 @@ export async function getAdminStats(region?: string): Promise<AdminDashboardStat
 }
 
 // 12. Eliminar todas las publicaciones (Función Super Admin para vaciar la base de datos)
-export async function deleteAllReportsFromDb(): Promise<{ success: boolean; message: string }> {
-  const supabase = createBrowserClient();
+export async function deleteAllReportsFromDb(adminKey: string): Promise<{ success: boolean; message: string }> {
   try {
-    // 1. Intentar llamar a la función RPC de Supabase con SECURITY DEFINER
-    const { data: rpcResult, error: rpcError } = await supabase.rpc('delete_all_reports');
-    
-    if (!rpcError && rpcResult) {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('mascotas_my_lost_reports');
-        localStorage.removeItem('mascotas_my_found_reports');
-        localStorage.removeItem('mascotas_my_sightings');
-      }
-      return { 
-        success: true, 
-        message: 'Todas las publicaciones y mascotas fueron eliminadas de la base de datos correctamente.' 
-      };
-    }
-
-    // 2. Si la función RPC aún no está creada en Supabase, ejecutar cascada de eliminación directa
-    // Tablas dependientes
-    await supabase.from('matches').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    await supabase.from('notifications').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    await supabase.from('qr_codes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    await supabase.from('moderation_reports').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    
-    // Avistamientos
-    await supabase.from('sightings').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-
-    // Reportes de mascotas perdidas y encontradas
-    await supabase.from('lost_reports').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    await supabase.from('found_reports').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-
-    // Mascotas
-    await supabase.from('pets').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-
-    // Limpiar almacenamiento del navegador local
+    const res = await fetch('/api/admin/reports/delete-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+      body: JSON.stringify({ confirm: 'BORRAR TODO' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, message: data.error || `Error ${res.status}` };
     if (typeof window !== 'undefined') {
       localStorage.removeItem('mascotas_my_lost_reports');
       localStorage.removeItem('mascotas_my_found_reports');
       localStorage.removeItem('mascotas_my_sightings');
     }
-
-    return { success: true, message: 'Todas las publicaciones fueron eliminadas con éxito.' };
-  } catch (error: any) {
+    return { success: true, message: data.message || 'Todas las publicaciones fueron eliminadas.' };
+  } catch (error) {
     console.error('Error general al eliminar todas las publicaciones:', error);
-    return { success: false, message: error?.message || 'Error al conectar con la base de datos.' };
+    return { success: false, message: (error as Error)?.message || 'Error al conectar con el servidor.' };
   }
 }
 
@@ -1264,9 +1076,10 @@ export async function getAllLostReportsForAdmin(): Promise<any[]> {
 
 // 14. Alternar estado de la publicación desde Super Admin (Lost, Found o Sighting)
 export async function toggleReportStatusInDb(
-  reportId: string, 
+  reportId: string,
   currentStatus: string,
-  type: 'lost' | 'found' | 'sighting' = 'lost'
+  type: 'lost' | 'found' | 'sighting' = 'lost',
+  adminKey?: string
 ): Promise<boolean> {
   const isCurrentlyReunited = currentStatus === 'REUNITED' || currentStatus === 'VERIFIED';
   const nextStatus = isCurrentlyReunited
@@ -1276,83 +1089,38 @@ export async function toggleReportStatusInDb(
   try {
     const res = await fetch('/api/reports/reunited', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reportId, type, status: nextStatus }),
+      headers: { 'Content-Type': 'application/json', ...(adminKey ? { 'x-admin-key': adminKey } : {}) },
+      body: JSON.stringify({ reportId, type, status: nextStatus, editToken: adminKey ? undefined : getEditToken(reportId) }),
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success) return true;
-    }
+    const data = await res.json().catch(() => ({}));
+    return res.ok && !!data.success;
   } catch (errApi) {
     console.warn('Error al llamar a /api/reports/reunited:', errApi);
-  }
-
-  // Fallback directo a Supabase Client
-  const supabase = createBrowserClient();
-  const table = type === 'found' ? 'found_reports' : type === 'sighting' ? 'sightings' : 'lost_reports';
-  try {
-    const { error } = await supabase
-      .from(table)
-      .update({ status: nextStatus, updated_at: new Date().toISOString() })
-      .eq('id', reportId);
-
-    if (error) {
-      console.error(`Error al actualizar ${table} en Supabase:`, error);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error('Error en toggleReportStatusInDb fallback:', err);
     return false;
   }
 }
 
 // 15. Eliminar reporte individual desde Super Admin (Lost, Found o Sighting)
+/**
+ * Borra una publicación. Lo puede hacer el administrador (adminKey)
+ * o el dueño (token de edición guardado en este dispositivo).
+ */
 export async function deleteSingleReportFromDb(
-  reportId: string, 
-  petId?: string,
-  type: 'lost' | 'found' | 'sighting' = 'lost'
+  reportId: string,
+  _petId?: string,
+  type: 'lost' | 'found' | 'sighting' = 'lost',
+  adminKey?: string
 ): Promise<boolean> {
   try {
     const res = await fetch('/api/reports/delete', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reportId, petId, type }),
+      headers: { 'Content-Type': 'application/json', ...(adminKey ? { 'x-admin-key': adminKey } : {}) },
+      body: JSON.stringify({ reportId, type, editToken: adminKey ? undefined : getEditToken(reportId) }),
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success) return true;
-    }
+    const data = await res.json().catch(() => ({}));
+    return res.ok && !!data.success;
   } catch (errApi) {
-    console.warn('Aviso API /api/reports/delete no disponible, usando fallback:', errApi);
-  }
-
-  const supabase = createBrowserClient();
-  try {
-    if (type === 'sighting') {
-      const { error } = await supabase.from('sightings').delete().eq('id', reportId);
-      return !error;
-    }
-    if (type === 'found') {
-      const { error: foundError } = await supabase.from('found_reports').delete().eq('id', reportId);
-      if (foundError) return false;
-      if (petId) await supabase.from('pets').delete().eq('id', petId);
-      return true;
-    }
-
-    // Default 'lost'
-    await supabase.from('sightings').delete().eq('lost_report_id', reportId);
-    const { error: repError } = await supabase.from('lost_reports').delete().eq('id', reportId);
-    if (repError) {
-      console.error('Error al eliminar lost_report:', repError);
-      return false;
-    }
-    if (petId) {
-      await supabase.from('pets').delete().eq('id', petId);
-    }
-    return true;
-  } catch (err) {
-    console.error('Error en deleteSingleReportFromDb:', err);
+    console.warn('Error al llamar a /api/reports/delete:', errApi);
     return false;
   }
 }
@@ -1373,3 +1141,99 @@ export async function getReunitedCount(): Promise<number> {
 }
 
 
+
+// ---------------------------------------------------------------------------
+// Confirmación de avistamientos por la familia y denuncias
+// ---------------------------------------------------------------------------
+
+/** La familia confirma / descarta un avistamiento (con el código de gestión de su publicación) */
+export async function reviewSightingAsOwner(
+  sightingId: string,
+  lostReportId: string,
+  decision: 'confirm' | 'dismiss' | 'pending'
+): Promise<{ ok: boolean; status?: string; error?: string }> {
+  try {
+    const res = await fetch('/api/reports/sighting-review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sightingId, decision, editToken: getEditToken(lostReportId) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) return { ok: true, status: data.status };
+    return { ok: false, error: data.error || 'No se pudo actualizar el avistamiento.' };
+  } catch {
+    return { ok: false, error: 'No se pudo conectar con el servidor.' };
+  }
+}
+
+export type FlagReason = 'false_information' | 'spam' | 'inappropriate_content' | 'scam' | 'duplicate' | 'other';
+
+export async function flagPublication(input: {
+  entityType: 'lost_report' | 'found_report' | 'sighting';
+  entityId: string;
+  reason: FlagReason;
+  details?: string;
+  turnstileToken?: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch('/api/reports/flag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) return { ok: true };
+    return { ok: false, error: data.error || 'No se pudo enviar la denuncia.' };
+  } catch {
+    return { ok: false, error: 'No se pudo conectar con el servidor.' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Email privado de contacto (código de gestión, recuperación y avisos)
+// ---------------------------------------------------------------------------
+
+/** Guarda el email de quien publicó y le envía su código de gestión */
+export async function registerContactEmail(
+  reportId: string,
+  type: 'lost' | 'found' | 'sighting',
+  email: string
+): Promise<{ ok: boolean; sent: boolean; error?: string }> {
+  try {
+    const res = await fetch('/api/reports/contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reportId, type, email, editToken: getEditToken(reportId) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) return { ok: true, sent: !!data.sent };
+    return { ok: false, sent: false, error: data.error || 'No se pudo registrar el email.' };
+  } catch {
+    return { ok: false, sent: false, error: 'No se pudo conectar con el servidor.' };
+  }
+}
+
+/** "Perdí mi código": pide que se envíen códigos nuevos al email */
+export async function requestCodeRecovery(email: string, turnstileToken: string | null = null): Promise<{ ok: boolean; message: string }> {
+  try {
+    const res = await fetch('/api/reports/recover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, turnstileToken }),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, message: data.message || data.error || 'No se pudo procesar el pedido.' };
+  } catch {
+    return { ok: false, message: 'No se pudo conectar con el servidor.' };
+  }
+}
+
+/** Avisa por mail a la familia de un avistamiento nuevo (si dejó su email). No bloquea. */
+export function notifyOwnerOfSighting(sightingId: string): void {
+  fetch('/api/reports/notify-sighting', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sightingId }),
+    keepalive: true,
+  }).catch(() => {});
+}

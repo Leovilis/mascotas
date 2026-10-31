@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { useRegion } from '@/components/region/RegionProvider';
 import { regionForPoint } from '@/config/region-geo';
+import { getPartnerBusinesses } from '@/services/partners.service';
+import type { PartnerBusiness } from '@/types/partners';
 
 // Dynamic import of InteractiveMap to avoid SSR issues with Leaflet window object
 const InteractiveMap = dynamic(
@@ -53,6 +55,18 @@ function MapaInner() {
   const [radiusFilter, setRadiusFilter] = useState<number>(urlId ? 50000 : region.mapDefaultRadiusM);
   const [mobileView, setMobileView] = useState<'map' | 'list'>('map');
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [partners, setPartners] = useState<PartnerBusiness[]>([]);
+
+  // Comercios amigos de la provincia (capa propia del mapa)
+  useEffect(() => {
+    let cancelled = false;
+    getPartnerBusinesses({ region: region.slug, limit: 200 }).then((list) => {
+      if (!cancelled) setPartners(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [region.slug]);
 
   useEffect(() => {
     if (urlId) {
@@ -210,6 +224,7 @@ function MapaInner() {
           <InteractiveMap
             key={region.slug}
             markers={markers}
+            partners={partners}
             center={mapCenter}
             zoom={mapZoom}
             selectedMarkerId={selectedMarkerId}

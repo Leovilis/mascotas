@@ -53,6 +53,11 @@ export default function PhotoUploader({
           setIsUploading(false);
           return;
         }
+      } else if (res.status >= 400 && res.status < 500) {
+        // Rechazo del servidor (formato, tamaño o demasiadas subidas): mostrar el motivo
+        const json = await res.json().catch(() => ({}));
+        alert(json.error || 'No se pudo subir la foto.');
+        return;
       }
 
       // Si /api/upload falla, intentar subir directamente con cliente de Supabase

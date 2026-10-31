@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import PhotoUploader from '@/components/forms/PhotoUploader';
 import LocationPicker from '@/components/map/LocationPicker';
@@ -17,6 +17,10 @@ import {
 } from '@/lib/utils';
 import { useRegion } from '@/components/region/RegionProvider';
 import { SITE_URL } from '@/config/regions';
+import { NearbyPartners } from '@/components/partners/NearbyPartners';
+import { sanitizePhoneInput } from '@/lib/validations/contact';
+import { notifyOwnerOfSighting } from '@/services/reports.service';
+import { TurnstileWidget, TurnstileHandle, TURNSTILE_ENABLED } from '@/components/forms/TurnstileWidget';
 
 function SightingForm() {
   const { region } = useRegion();
@@ -27,6 +31,8 @@ function SightingForm() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const turnstileRef = useRef<TurnstileHandle>(null);
   const [createdSightingId, setCreatedSightingId] = useState<string>('');
   const [registeredPet, setRegisteredPet] = useState<{ name: string; phone?: string; address?: string; desc?: string; waUrl?: string } | null>(null);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -92,11 +98,18 @@ function SightingForm() {
       return;
     }
 
+    if (TURNSTILE_ENABLED && !turnstileToken) {
+      alert('Esperá un segundo a que termine la verificación de seguridad (abajo del formulario) y volvé a tocar el botón.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const newSightingId = await createSightingInDb(validation.data);
+      const newSightingId = await createSightingInDb(validation.data, turnstileToken);
       // Guardar ID en almacenamiento local para "Mis Reportes"
       saveCreatedReportId('sighting', newSightingId);
+      // Aviso por mail a la familia (si dejó su email al publicar)
+      notifyOwnerOfSighting(newSightingId);
       setCreatedSightingId(newSightingId);
 
       const targetPetName = capitalizeWords(selectedPet?.name || initialPetName || 'tu mascota');
@@ -106,7 +119,7 @@ function SightingForm() {
       let waUrl = '';
       if (cleanPhone) {
         const sightingUrl = typeof window !== 'undefined' ? `${window.location.origin}/mascota-avistada/${newSightingId}` : `${SITE_URL}/mascota-avistada/${newSightingId}`;
-        const whatsappText = `¡Hola! 🐾 Acaban de reportar un *AVISTAMIENTO* de tu mascota *${targetPetName}* en ${region.mainCity}.\n\n📍 *Lugar:* ${capitalizeWords(formattedAddress)}\n📝 *Detalles:* ${capitalizeFirst(formData.description || 'Visto en la vía pública')}\n\n👉 *Mirá la ficha del avistamiento y fotos aquí:*\n${sightingUrl}`;
+        const whatsappText = `¡Hola! 🐾 Acaban de reportar un *AVISTAMIENTO* de tu mascota *${targetPetName}* en ${region.mainCity}.\n\n📍 *Lugar:* ${capitalizeWords(formattedAddress)}\n📝 *Detalles:* ${capitalizeFirst(formData.description || 'Visto en la vía pública')}\n\n👉 *Mirá la ficha del avistamiento y fotos aquí:*\n${sightingUrl}\n\n_Desde la ficha podés confirmar si es tu mascota. ⚠️ ${region.brandName} nunca pide dinero: no transfieras nada por adelantado._`;
         waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(whatsappText)}`;
         
         // Disparar automáticamente la notificación por WhatsApp
@@ -129,7 +142,8 @@ function SightingForm() {
       setSuccess(true);
     } catch (err: any) {
       setIsSubmitting(false);
-      alert(`Error al registrar avistamiento: ${err.message || 'Verificá tu conexión a Supabase'}`);
+      turnstileRef.current?.reset();
+      alert(`Error al registrar avistamiento: ${err.message || 'Verificá tu conexión'}`);
     }
   };
 
@@ -186,6 +200,25 @@ function SightingForm() {
             Ver en el Mapa 🗺️
           </button>
         </div>
+
+        {/* Veterinarias cercanas: pueden leer el microchip si el animal quedó en tránsito */}
+        {typeof formData.latitude === 'number' && typeof formData.longitude === 'number' && (
+          <div className="text-left">
+            <NearbyPartners
+              region={region.slug}
+              lat={formData.latitude}
+              lng={formData.longitude}
+              maxKm={10}
+              title={formData.is_holding ? 'Veterinarias cerca para leer el microchip' : 'Veterinarias cercanas'}
+              subtitle={
+                formData.is_holding
+                  ? 'Si la tenés en tu casa, una veterinaria puede leer su microchip gratis y ubicar a la familia.'
+                  : 'Avisales: pueden difundir el aviso entre sus clientes del barrio.'
+              }
+              whatsappText={`Hola! Vi una mascota ${formData.is_holding ? 'que tengo en tránsito' : 'suelta'} cerca de ${formData.approximate_address || 'su local'}. Ficha: ${typeof window !== 'undefined' ? window.location.origin : ''}/mascota-avistada/${createdSightingId}`}
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -298,9 +331,11 @@ function SightingForm() {
                   type="tel"
                   placeholder={`Ej: ${region.phoneExampleCompact}`}
                   value={formData.contact_phone || ''}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, contact_phone: e.target.value }))}
+                  inputMode="tel"
+                  onChange={(e) => setFormData((prev) => ({ ...prev, contact_phone: sanitizePhoneInput(e.target.value) }))}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-zinc-900 dark:text-zinc-100"
                 />
+                {formErrors.contact_phone && <p className="text-xs text-rose-600 mt-1">{formErrors.contact_phone}</p>}
               </div>
             </div>
             <p className="text-[11px] text-zinc-500">
@@ -466,6 +501,9 @@ function SightingForm() {
         </div>
 
         {/* Submit en color amarillo */}
+        {/* Verificación anti-spam (Cloudflare Turnstile) */}
+        <TurnstileWidget ref={turnstileRef} onToken={setTurnstileToken} className="flex justify-center" />
+
         <button
           type="submit"
           disabled={isSubmitting}

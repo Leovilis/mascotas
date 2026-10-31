@@ -6,6 +6,18 @@ import { MapMarkerItem } from '@/types';
 import { getSpeciesEmoji, formatTimeAgo, capitalizeWords } from '@/lib/utils';
 import { Crosshair, Filter, Layers, Navigation } from 'lucide-react';
 import { DEFAULT_REGION } from '@/config/regions';
+import type { PartnerBusiness } from '@/types/partners';
+import { getPartnerCategory } from '@/types/partners';
+import { partnerMapsUrl, partnerWhatsappUrl } from '@/services/partners.service';
+
+/** Escapa texto cargado por usuarios antes de meterlo en el HTML de un popup */
+function escapeHtml(value: string | null | undefined): string {
+  return (value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
+}
+
+function safeUrl(value: string | null | undefined): string {
+  return value && /^(https?:\/\/|data:image\/)/i.test(value) ? escapeHtml(value) : '';
+}
 
 interface InteractiveMapProps {
   markers?: MapMarkerItem[];
@@ -15,6 +27,8 @@ interface InteractiveMapProps {
   selectedMarkerId?: string | null;
   height?: string;
   isLoading?: boolean;
+  /** Comercios amigos a mostrar como capa propia (se puede ocultar) */
+  partners?: PartnerBusiness[];
 }
 
 export default function InteractiveMap({
@@ -25,10 +39,14 @@ export default function InteractiveMap({
   selectedMarkerId,
   height = '500px',
   isLoading = false,
+  partners = [],
 }: InteractiveMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const leafletMapRef = useRef<any>(null);
   const markersLayerRef = useRef<any>(null);
+  const partnersLayerRef = useRef<import('leaflet').LayerGroup | null>(null);
+  const [showPartners, setShowPartners] = useState(true);
+  const [mapReady, setMapReady] = useState(false);
 
   const [activeFilter, setActiveFilter] = useState<'all' | 'lost' | 'found' | 'sighting'>('all');
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
@@ -58,8 +76,14 @@ export default function InteractiveMap({
 
         L.control.zoom({ position: 'bottomright' }).addTo(map);
 
+        // Capa de comercios debajo de las mascotas (las mascotas siempre quedan arriba)
+        map.createPane('partnersPane');
+        const pane = map.getPane('partnersPane');
+        if (pane) pane.style.zIndex = '590';
+        partnersLayerRef.current = L.layerGroup().addTo(map);
         markersLayerRef.current = L.layerGroup().addTo(map);
         leafletMapRef.current = map;
+        setMapReady(true);
       }
     }
 
@@ -153,7 +177,7 @@ export default function InteractiveMap({
             ${
               m.photo_url
                 ? `<div style="position: relative; width: 100%; height: 125px; border-radius: 12px; overflow: hidden; margin-bottom: 8px; background-color: #f4f4f5;">
-                    <img src="${m.photo_url}" alt="${m.title}" style="width: 100%; height: 100%; object-fit: cover;" />
+                    <img src="${safeUrl(m.photo_url)}" alt="${escapeHtml(m.title)}" style="width: 100%; height: 100%; object-fit: cover;" />
                     <span style="position: absolute; top: 6px; left: 6px; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 6px; color: white; background: rgba(0,0,0,0.65); backdrop-filter: blur(4px);">
                       ${badgeText}
                     </span>
@@ -163,12 +187,12 @@ export default function InteractiveMap({
                    </span>`
             }
             <div style="margin-bottom: 8px;">
-              <h4 style="font-weight: 800; font-size: 15px; margin: 0; color: #18181b; line-height: 1.2;">${m.title}</h4>
+              <h4 style="font-weight: 800; font-size: 15px; margin: 0; color: #18181b; line-height: 1.2;">${escapeHtml(m.title)}</h4>
               ${
                 m.approximate_address
                   ? `<p style="font-size: 12px; font-weight: 700; color: #27272a; margin: 4px 0 2px 0; display: flex; align-items: flex-start; gap: 4px; line-height: 1.3;">
                       <span style="color: #ea580c; flex-shrink: 0;">📍</span>
-                      <span>${capitalizeWords(m.approximate_address)}</span>
+                      <span>${escapeHtml(capitalizeWords(m.approximate_address))}</span>
                      </p>`
                   : ''
               }
@@ -178,12 +202,12 @@ export default function InteractiveMap({
               </p>
             </div>
             <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
-              <a href="${detailUrl}" style="display: block; width: 100%; text-align: center; background-color: #18181b; color: #ffffff; font-size: 12px; font-weight: 700; padding: 8px 10px; border-radius: 10px; text-decoration: none; transition: background-color 0.2s;">
+              <a href="${escapeHtml(detailUrl)}" style="display: block; width: 100%; text-align: center; background-color: #18181b; color: #ffffff; font-size: 12px; font-weight: 700; padding: 8px 10px; border-radius: 10px; text-decoration: none; transition: background-color 0.2s;">
                 ${isSighting ? 'Ver Ficha de Avistamiento' : 'Ver Ficha Completa'}
               </a>
               ${
                 isLostPet
-                  ? `<a href="${sightingUrl}" style="display: block; width: 100%; text-align: center; background-color: #fbbf24; color: #18181b; font-size: 11px; font-weight: 800; padding: 6px 10px; border-radius: 10px; text-decoration: none; border: 1px solid #f59e0b;">
+                  ? `<a href="${escapeHtml(sightingUrl)}" style="display: block; width: 100%; text-align: center; background-color: #fbbf24; color: #18181b; font-size: 11px; font-weight: 800; padding: 6px 10px; border-radius: 10px; text-decoration: none; border: 1px solid #f59e0b;">
                       🟡 ¿La viste? Reportar avistamiento
                      </a>`
                   : ''
@@ -202,6 +226,61 @@ export default function InteractiveMap({
 
     updateMarkers();
   }, [markers, activeFilter]);
+
+  // Capa de Comercios Amigos (pines de tienda; los Destacados más grandes y con logo)
+  useEffect(() => {
+    async function updatePartners() {
+      const layer = partnersLayerRef.current;
+      if (!mapReady || !leafletMapRef.current || !layer) return;
+      const L = (await import('leaflet')).default;
+      layer.clearLayers();
+      if (!showPartners) return;
+
+      partners.forEach((p) => {
+        const featured = p.plan === 'destacado';
+        const cat = getPartnerCategory(p.category);
+        const size = featured ? 40 : 28;
+        const logo = safeUrl(p.logo_url);
+        const inner = featured && logo
+          ? `<img src="${logo}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:9999px;" />`
+          : `<span style="font-size:${featured ? 18 : 13}px;line-height:1;">${cat.emoji}</span>`;
+        const html = `
+          <div style="width:${size}px;height:${size}px;border-radius:9999px;background:#ffffff;border:${featured ? 3 : 2}px solid ${featured ? '#f97316' : '#71717a'};box-shadow:0 2px 6px rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;overflow:hidden;">
+            ${inner}
+          </div>`;
+        const icon = L.divIcon({
+          html,
+          className: 'partner-map-marker',
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+          popupAnchor: [0, -size / 2],
+        });
+
+        const wa = partnerWhatsappUrl(p);
+        const popup = `
+          <div style="min-width:200px;max-width:240px;font-family:system-ui,-apple-system,sans-serif;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              ${logo ? `<img src="${logo}" alt="" style="width:36px;height:36px;border-radius:8px;object-fit:cover;" />` : `<span style="font-size:22px;">${cat.emoji}</span>`}
+              <div>
+                <h4 style="font-weight:800;font-size:14px;margin:0;color:#18181b;line-height:1.2;">${escapeHtml(p.name)}</h4>
+                <p style="font-size:11px;color:#71717a;margin:2px 0 0 0;">${cat.singular}${p.is_24h ? ' · 24 hs' : ''}</p>
+              </div>
+            </div>
+            ${featured ? '<span style="display:inline-block;font-size:10px;font-weight:800;padding:2px 6px;border-radius:6px;background:#ffedd5;color:#c2410c;margin-bottom:6px;">COMERCIO AMIGO</span>' : ''}
+            <p style="font-size:12px;color:#27272a;margin:0 0 8px 0;">📍 ${escapeHtml(p.address)}${p.city ? `, ${escapeHtml(p.city)}` : ''}</p>
+            <div style="display:flex;gap:6px;">
+              ${wa ? `<a href="${escapeHtml(wa)}" target="_blank" rel="noopener noreferrer" style="flex:1;text-align:center;background:#059669;color:#fff;font-size:11px;font-weight:700;padding:6px 8px;border-radius:8px;text-decoration:none;">WhatsApp</a>` : ''}
+              <a href="${escapeHtml(partnerMapsUrl(p))}" target="_blank" rel="noopener noreferrer" style="flex:1;text-align:center;background:#18181b;color:#fff;font-size:11px;font-weight:700;padding:6px 8px;border-radius:8px;text-decoration:none;">Cómo llegar</a>
+            </div>
+          </div>`;
+
+        L.marker([p.latitude, p.longitude], { icon, pane: 'partnersPane', zIndexOffset: featured ? 100 : 0 })
+          .bindPopup(popup, { maxWidth: 260, className: 'custom-leaflet-popup', autoPan: true })
+          .addTo(layer);
+      });
+    }
+    updatePartners();
+  }, [partners, showPartners, mapReady]);
 
   // Si selectedMarkerId cambia externamente, abrir popup y centrar
   useEffect(() => {
@@ -333,6 +412,20 @@ export default function InteractiveMap({
           >
             <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
             En Tránsito 🏠
+          </button>
+        )}
+        {partners.length > 0 && (
+          <button
+            onClick={() => setShowPartners((v) => !v)}
+            aria-pressed={showPartners}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 transition-colors ${
+              showPartners
+                ? 'bg-orange-500 text-white shadow-xs'
+                : 'text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/40'
+            }`}
+            title={showPartners ? 'Ocultar comercios amigos' : 'Mostrar comercios amigos'}
+          >
+            🏪 Comercios ({partners.length})
           </button>
         )}
       </div>

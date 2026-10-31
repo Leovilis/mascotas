@@ -9,6 +9,7 @@ import { getAllPublishedReports, getAdminStats } from '@/services/reports.servic
 import { PaginatedPetReportsGrid } from '@/components/cards/PaginatedPetReportsGrid';
 import { ParallaxHero } from '@/components/home/ParallaxHero';
 import { getServerRegion } from '@/lib/region/server';
+import { FeaturedPartnersStrip } from '@/components/partners/FeaturedPartnersStrip';
 
 // La home depende de la provincia del visitante (cookie), por eso se renderiza por request.
 export default async function HomePage() {
@@ -24,6 +25,9 @@ export default async function HomePage() {
       
       {/* Hero Section con Paralaje Dinámico en Pantalla Completa (Mobile First) */}
       <ParallaxHero stats={stats} />
+
+      {/* Comercios amigos destacados (beneficio del plan Destacado; no se muestra si no hay) */}
+      <FeaturedPartnersStrip />
 
       {/* Grid Unificado de Publicaciones Recientes (Limitado a 6 inicial + carga de 6 en 6) */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">

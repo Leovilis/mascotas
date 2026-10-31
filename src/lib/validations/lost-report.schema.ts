@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { optionalEmailSchema, phoneSchema } from './contact';
 
 export const lostReportSchema = z.object({
   // Pet information
@@ -41,9 +42,9 @@ export const lostReportSchema = z.object({
   contact_name: z.string({
     message: 'Por favor ingresá tu nombre o apodo de contacto',
   }).min(2, 'Por favor ingresá tu nombre o apodo de contacto').max(70),
-  contact_phone: z.string({
-    message: 'Por favor ingresá un teléfono o WhatsApp para que te avisen',
-  }).min(6, 'Por favor ingresá un teléfono o WhatsApp para que te avisen').max(30),
+  contact_phone: phoneSchema('Por favor ingresá un teléfono o WhatsApp para que te avisen'),
+  // Email privado (no se publica): para mandar el código de gestión y avisos
+  contact_email: optionalEmailSchema,
   contact_phone_public: z.boolean().default(false),
 });
 
