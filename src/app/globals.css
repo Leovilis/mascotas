@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Mobile Safe Area Insets for modern smartphones (iPhone Home Bar / Notch) */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Smooth horizontal scrollbar hiding for touch chip carousels */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Reglas de impresión limpias para afiches y carteles (1 sola hoja A4) */
+@media print {
+  header, footer, nav, button, aside, .print\:hidden, [role="dialog"], #driver-popover-item {
+    display: none !important;
+  }
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  @page {
+    size: A4 portrait;
+    margin: 0.8cm;
+  }
+}
+
+/* Estilos optimizados para Leaflet Popups en celulares y PC */
+.custom-leaflet-popup .leaflet-popup-content-wrapper {
+  padding: 6px;
+  border-radius: 16px;
+  box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.25), 0 4px 12px -2px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+.custom-leaflet-popup .leaflet-popup-content {
+  margin: 6px 8px;
+  line-height: 1.4;
+}
+.custom-leaflet-popup .leaflet-popup-close-button {
+  top: 10px;
+  right: 10px;
+  color: #71717a;
+  padding: 4px;
+}
+
