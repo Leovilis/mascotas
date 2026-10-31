@@ -80,7 +80,7 @@ export const DEFAULT_REGION_SLUG: RegionSlug = isRegionSlug(process.env.NEXT_PUB
 export const DEFAULT_REGION: RegionConfig = REGIONS[DEFAULT_REGION_SLUG];
 
 /** URL pública del sitio (para QR y links compartidos) */
-export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://mascotastrelew.vercel.app').replace(/\/$/, '');
+export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://mascotasargentinas.vercel.app').replace(/\/$/, '');
 
 /** Nombre genérico de la plataforma cuando no corresponde una provincia en particular */
 export const PLATFORM_NAME = 'Mascotas Perdidas — Red Comunitaria';

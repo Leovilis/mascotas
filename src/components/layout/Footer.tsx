@@ -18,7 +18,7 @@ export async function Footer() {
             </span>
           </div>
           <p className="text-sm text-zinc-600 dark:text-zinc-400 max-w-md leading-relaxed">
-            Una red ciudadana geolocalizada sin fines de lucro enfocada exclusivamente en <strong>reunir mascotas perdidas con sus familias</strong> en {region.coverageText}.
+            Una red ciudadana geolocalizada enfocada exclusivamente en <strong>reunir mascotas perdidas con sus familias</strong> en {region.coverageText}.
           </p>
           <p className="text-xs text-zinc-400 dark:text-zinc-500">
             ⚠️ No es una red social de entretenimiento. Prohibida la compra/venta y solicitud de recompensas fraudulentas.
