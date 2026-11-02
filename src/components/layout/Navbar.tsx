@@ -17,7 +17,8 @@ import {
   ArrowRight,
   Layers,
   Search,
-  Store
+  Store,
+  HeartHandshake
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -79,6 +80,12 @@ export function Navbar() {
       title: 'Carteles QR de Búsqueda',
       desc: 'Generar pósteres con QR listos para imprimir',
       icon: QrCode,
+    },
+    {
+      href: '/adopcion',
+      title: 'Adopción',
+      desc: 'Perros y gatos de refugios que buscan familia',
+      icon: HeartHandshake,
     },
     {
       href: '/comercios',
@@ -154,6 +161,19 @@ export function Navbar() {
                 >
                   <QrCode className="w-4 h-4 text-zinc-500" />
                   Carteles QR
+                </Link>
+
+                <Link
+                  href="/adopcion"
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-colors',
+                    pathname.startsWith('/adopcion')
+                      ? 'bg-zinc-100 dark:bg-zinc-800 text-emerald-600 dark:text-emerald-400 font-bold'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-50 dark:hover:bg-zinc-900'
+                  )}
+                >
+                  <HeartHandshake className="w-4 h-4 text-emerald-500" />
+                  Adopción
                 </Link>
               </nav>
 

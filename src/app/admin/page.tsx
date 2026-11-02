@@ -377,6 +377,13 @@ export default function AdminPage() {
             Comercios Amigos
           </Link>
 
+          <Link
+            href="/admin/asociaciones"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors"
+          >
+            🏠 Asociaciones de adopción
+          </Link>
+
           <button
             onClick={handleLogout}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 text-xs font-bold transition-colors cursor-pointer border border-zinc-200 dark:border-zinc-700"

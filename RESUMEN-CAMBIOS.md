@@ -180,6 +180,23 @@ No requiere migración nueva: usa el estado `DISMISSED` y la tabla `moderation_r
 - **Variables:** `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (pública) y `TURNSTILE_SECRET_KEY` (solo servidor). Sin la secreta, el captcha no se exige (sirve para desarrollo).
 - **Migración:** `supabase/migrations/20261031000003_server_side_inserts.sql`. **Después de correrla, publicar necesita `SUPABASE_SERVICE_ROLE_KEY`** en `.env` y en Vercel.
 
+### 12. Adopción responsable (1/11/2026)
+
+Se integró la app "Adoptá Jujuy" (carpeta `adopta`) dentro de Mascotas Argentinas, para todo el país. Detalle completo en **`ADOPCION.md`**.
+
+- **Público:** sección `/adopcion` filtrada por provincia, ficha de cada animal, página de cada refugio y franja "Buscan familia en …" en la home. Link "Adopción" en la barra y en el menú.
+- **Adoptantes:** cuenta con Supabase Auth (email y contraseña, confirmación por mail y recuperación de contraseña) y ficha privada con nombre, DNI, teléfono y domicilio. Piden adoptar con un mensaje y siguen el estado en `/cuenta`.
+- **Asociaciones:** se registran y quedan **pendientes hasta que el admin las aprueba** en `/admin/asociaciones`. En su panel `/asociacion`:
+  - cargan animales con hasta 6 fotos;
+  - registran vacunas y controles;
+  - marcan animales como reservados;
+  - ven las solicitudes con los datos del adoptante;
+  - aprueban la adopción y generan la ficha imprimible;
+  - anotan la inscripción en el registro oficial.
+- **Mails:** asociación nueva, asociación aprobada o rechazada, solicitud nueva y adopción aprobada.
+- **Seguridad:** todas las tablas tienen RLS y están bloqueadas para la clave pública; cada acción verifica en el servidor que el animal sea de la asociación del usuario. No se puede repetir un DNI. Un adoptante puede tener hasta 5 solicitudes en revisión a la vez.
+- **Migración:** `supabase/migrations/20261101000001_adoption.sql`.
+
 ## Pruebas realizadas
 
 - **TypeScript:** sin errores (`tsc --noEmit`).
@@ -218,6 +235,17 @@ No requiere migración nueva: usa el estado `DISMISSED` y la tabla `moderation_r
   - El código que genera el servidor sirve para borrar la publicación.
   - Con la clave pública, insertar en `pets` o borrar `lost_reports` da "permission denied".
   - En el navegador: el widget aparece, el avistamiento se registra enviando el token y queda guardado el código en el dispositivo; la denuncia con captcha llega.
+- **Adopción** (flujo completo en el navegador, con un Supabase Auth simulado):
+  - Una persona crea su cuenta, registra la asociación (queda pendiente), carga un animal con foto y una vacuna.
+  - Mientras está pendiente, la ficha pública da 404.
+  - El admin aprueba la asociación; una clave incorrecta da 401. Después de aprobarla, el animal aparece en `/adopcion` y en la home.
+  - Otra persona crea su cuenta desde la ficha y manda la solicitud. Un DNI repetido se rechaza, aunque se escriba con puntos.
+  - El adoptante no puede entrar al panel de la asociación ni a la ficha interna del animal.
+  - La asociación ve la solicitud con DNI y mensaje, aprueba la adopción, carga el N° de registro e imprime la ficha.
+  - El adoptante ve "¡Aprobada!" y el animal deja de listarse como disponible.
+  - Login con contraseña incorrecta: rechazado. Login correcto y cierre de sesión: funcionan.
+  - Llegaron los 4 mails.
+  - Con la clave pública, las tablas de adopción dan "permission denied".
 - **Navegador (Playwright):**
   - Con GPS simulado detecta Jujuy, Santa Fe, CABA y Río Negro.
   - La elección manual se respeta aunque el GPS diga otra cosa.
@@ -226,7 +254,7 @@ No requiere migración nueva: usa el estado `DISMISSED` y la tabla `moderation_r
 
 ## Pendientes y observaciones
 
-- **Correr las migraciones antes de publicar, en orden** (`20261008000001`, `…02`, `…03`, `20261031000001`, `20261031000002` y `20261031000003`). Si falta la de seguridad, publicar falla, porque la app ya envía la columna `edit_token_hash`.
+- **Correr las migraciones antes de publicar, en orden** (`20261008000001`, `…02`, `…03`, `20261031000001`, `20261031000002`, `20261031000003` y `20261101000001`). Si falta la de seguridad, publicar falla, porque la app ya envía la columna `edit_token_hash`.
 - **Emails (Resend):** crear la cuenta, verificar un dominio propio en *Domains* y cargar `RESEND_API_KEY` y `EMAIL_FROM` en `.env` y en Vercel. Sin dominio, Resend solo deja mandarte mails a vos mismo, desde `onboarding@resend.dev`.
 - **Instalar las dependencias actualizadas:** `npm install` (Next 16.4.3).
 - **Configurar en Vercel:** `ADMIN_API_KEY` y `SUPABASE_SERVICE_ROLE_KEY` (obligatorias; sin `ADMIN_API_KEY` nadie puede entrar a `/admin`), y `NEXT_PUBLIC_PARTNER_CONTACT_WHATSAPP` para el botón "Quiero sumar mi comercio". Hay una plantilla en `.env.example`.

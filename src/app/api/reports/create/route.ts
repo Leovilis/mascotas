@@ -10,6 +10,7 @@ import { foundReportSchema } from '@/lib/validations/found-report.schema';
 import { sightingSchema } from '@/lib/validations/sighting.schema';
 import { regionForPoint } from '@/config/region-geo';
 import { getServerRegion } from '@/lib/region/server';
+import { isOwnStorageUrl } from '@/lib/storage-url';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,12 +24,6 @@ const LIMITS: Record<CreateType, { max: number; windowMs: number }> = {
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** Solo se aceptan fotos subidas al Storage de este proyecto */
-function isOwnStorageUrl(url: string): boolean {
-  const base = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
-  return !!base && url.startsWith(`${base}/storage/v1/object/public/`) && url.length < 500;
-}
 
 function formatAddress(streetName?: string | null, approx?: string | null, number?: string | null, neighborhood?: string | null) {
   const street = (streetName || approx || '').trim();
@@ -89,7 +84,7 @@ export async function POST(req: Request) {
     const parsed = type === 'lost' ? lostReportSchema.safeParse(body?.data) : foundReportSchema.safeParse(body?.data);
     if (!parsed.success) return bad(parsed.error.issues[0]?.message || 'Datos inválidos');
     const input = parsed.data;
-    if (input.photos.length > 6 || !input.photos.every(isOwnStorageUrl)) return bad('Las fotos deben subirse desde el formulario.');
+    if (input.photos.length > 6 || !input.photos.every((u) => isOwnStorageUrl(u))) return bad('Las fotos deben subirse desde el formulario.');
 
     const { data: pet, error: petError } = await supabase
       .from('pets')
