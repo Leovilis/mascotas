@@ -21,11 +21,6 @@ export async function generateMetadata(): Promise<Metadata> {
       locale: 'es_AR',
       siteName: region.brandName,
     },
-    icons: {
-      icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
-      apple: [{ url: '/icon.svg', type: 'image/svg+xml' }],
-      shortcut: ['/icon.svg'],
-    },
   };
 }
 
@@ -35,6 +30,7 @@ export const viewport: Viewport = {
   maximumScale: 5,
   userScalable: true,
   viewportFit: 'cover',
+  themeColor: '#f97316',
 };
 
 export default async function RootLayout({
