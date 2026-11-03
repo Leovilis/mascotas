@@ -48,7 +48,11 @@ export async function POST(req: Request) {
     if (!auth.ok) return auth.response;
 
     const patch: Record<string, unknown> = { status };
-    if (type !== 'sighting') patch.updated_at = new Date().toISOString();
+    if (type !== 'sighting') {
+      patch.updated_at = new Date().toISOString();
+      // Fecha del reencuentro (para /reencuentros); se borra si la búsqueda se reactiva
+      patch.reunited_at = status === 'REUNITED' ? patch.updated_at : null;
+    }
 
     const { data, error } = await supabaseAdmin
       .from(REPORT_TABLE[type])

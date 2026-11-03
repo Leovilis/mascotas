@@ -11,6 +11,7 @@ import { ParallaxHero } from '@/components/home/ParallaxHero';
 import { getServerRegion } from '@/lib/region/server';
 import { FeaturedPartnersStrip } from '@/components/partners/FeaturedPartnersStrip';
 import { AdoptionStrip } from '@/components/adoption/AdoptionStrip';
+import { ReunionsStrip } from '@/components/reunions/ReunionsStrip';
 
 // La home depende de la provincia del visitante (cookie), por eso se renderiza por request.
 export default async function HomePage() {
@@ -61,6 +62,9 @@ export default async function HomePage() {
           key={region.slug}
         />
       </section>
+
+      {/* Mascotas que volvieron a casa en los últimos 3 meses (solo si hay) */}
+      <ReunionsStrip region={region.slug} provinceName={region.provinceName} />
 
       {/* Animales en adopción de la provincia (solo si hay) */}
       <AdoptionStrip region={region.slug} provinceName={region.provinceName} />

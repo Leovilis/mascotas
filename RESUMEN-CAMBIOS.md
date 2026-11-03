@@ -197,6 +197,16 @@ Se integró la app "Adoptá Jujuy" (carpeta `adopta`) dentro de Mascotas Argenti
 - **Seguridad:** todas las tablas tienen RLS y están bloqueadas para la clave pública; cada acción verifica en el servidor que el animal sea de la asociación del usuario. No se puede repetir un DNI. Un adoptante puede tener hasta 5 solicitudes en revisión a la vez.
 - **Migración:** `supabase/migrations/20261101000001_adoption.sql`.
 
+### 13. "Volvieron a casa": reencuentros de los últimos 3 meses (3/11/2026)
+
+- **Página `/reencuentros`:** muestra las mascotas de la provincia que volvieron con su familia en los últimos 90 días, perdidas que volvieron a casa y encontradas que se devolvieron. Cada tarjeta dice la fecha y cuántos días tardó. Arriba hay un resumen con la cantidad total y el promedio de días.
+- **Home:** franja "Volvieron a casa en …" con los últimos 4. Solo aparece si hay alguno.
+- **Mapa:** el contador "N mascotas encontradas y devueltas a casa" ahora es un link a `/reencuentros`.
+- **Menú:** nuevo acceso "Volvieron a casa".
+- **Fecha del reencuentro:** columna nueva `reunited_at`. Se completa al marcar la mascota como reunida y se borra si la búsqueda se reactiva. A las que ya estaban reunidas se les puso como fecha su última modificación.
+- No se muestran datos de contacto.
+- **Migración:** `supabase/migrations/20261103000001_reunited_at.sql`.
+
 ## Pruebas realizadas
 
 - **TypeScript:** sin errores (`tsc --noEmit`).
@@ -254,7 +264,7 @@ Se integró la app "Adoptá Jujuy" (carpeta `adopta`) dentro de Mascotas Argenti
 
 ## Pendientes y observaciones
 
-- **Correr las migraciones antes de publicar, en orden** (`20261008000001`, `…02`, `…03`, `20261031000001`, `20261031000002`, `20261031000003` y `20261101000001`). Si falta la de seguridad, publicar falla, porque la app ya envía la columna `edit_token_hash`.
+- **Correr las migraciones antes de publicar, en orden** (`20261008000001`, `…02`, `…03`, `20261031000001`, `20261031000002`, `20261031000003`, `20261101000001` y `20261103000001`). Si falta la de seguridad, publicar falla, porque la app ya envía la columna `edit_token_hash`.
 - **Emails (Resend):** crear la cuenta, verificar un dominio propio en *Domains* y cargar `RESEND_API_KEY` y `EMAIL_FROM` en `.env` y en Vercel. Sin dominio, Resend solo deja mandarte mails a vos mismo, desde `onboarding@resend.dev`.
 - **Instalar las dependencias actualizadas:** `npm install` (Next 16.4.3).
 - **Configurar en Vercel:** `ADMIN_API_KEY` y `SUPABASE_SERVICE_ROLE_KEY` (obligatorias; sin `ADMIN_API_KEY` nadie puede entrar a `/admin`), y `NEXT_PUBLIC_PARTNER_CONTACT_WHATSAPP` para el botón "Quiero sumar mi comercio". Hay una plantilla en `.env.example`.

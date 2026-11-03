@@ -146,10 +146,13 @@ function MapaInner() {
               Mascotas perdidas 🔴 y avistamientos en la vía pública 🟡 en {region.provinceName}.
             </p>
             {reunitedCount > 0 && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-xs font-black shadow-xs">
+              <Link
+                href="/reencuentros"
+                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-xs font-black shadow-xs hover:bg-emerald-200"
+              >
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                {reunitedCount} mascotas encontradas y devueltas a casa ❤️
-              </span>
+                {reunitedCount} mascotas encontradas y devueltas a casa ❤️ · Ver
+              </Link>
             )}
           </div>
         </div>

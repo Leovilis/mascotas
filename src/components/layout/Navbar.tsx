@@ -18,7 +18,8 @@ import {
   Layers,
   Search,
   Store,
-  HeartHandshake
+  HeartHandshake,
+  PartyPopper
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -80,6 +81,12 @@ export function Navbar() {
       title: 'Carteles QR de Búsqueda',
       desc: 'Generar pósteres con QR listos para imprimir',
       icon: QrCode,
+    },
+    {
+      href: '/reencuentros',
+      title: 'Volvieron a casa',
+      desc: 'Mascotas encontradas en los últimos 3 meses',
+      icon: PartyPopper,
     },
     {
       href: '/adopcion',
