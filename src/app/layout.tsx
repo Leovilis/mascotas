@@ -6,6 +6,7 @@ import { Footer } from '@/components/layout/Footer';
 import { InteractiveTour } from '@/components/layout/InteractiveTour';
 import { RegionProvider } from '@/components/region/RegionProvider';
 import { getServerRegion } from '@/lib/region/server';
+import { GoogleAnalytics } from '@/components/analytics/GoogleAnalytics';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { region } = await getServerRegion();
@@ -52,6 +53,7 @@ export default async function RootLayout({
           <MobileBottomNav />
           <InteractiveTour />
         </RegionProvider>
+        <GoogleAnalytics />
       </body>
     </html>
   );

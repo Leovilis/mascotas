@@ -15,6 +15,7 @@ import { NearbyPartners } from '@/components/partners/NearbyPartners';
 import { isValidEmail, sanitizePhoneInput } from '@/lib/validations/contact';
 import { registerContactEmail } from '@/services/reports.service';
 import { TurnstileWidget, TurnstileHandle, TURNSTILE_ENABLED } from '@/components/forms/TurnstileWidget';
+import { trackEvent } from '@/lib/analytics';
 
 const FRIENDLY_LOST_LABELS: Record<string, string> = {
   name: 'Nombre de la mascota',
@@ -101,6 +102,7 @@ export default function PublicarPerdidaPage() {
         );
       }
       setIsSubmitting(false);
+      trackEvent('publicar_perdida', { region: region.slug, especie: validation.data.species });
       setSuccessId(newId);
     } catch (err: any) {
       setIsSubmitting(false);

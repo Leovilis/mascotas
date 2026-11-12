@@ -207,6 +207,14 @@ Se integró la app "Adoptá Jujuy" (carpeta `adopta`) dentro de Mascotas Argenti
 - No se muestran datos de contacto.
 - **Migración:** `supabase/migrations/20261103000001_reunited_at.sql`.
 
+### 14. Google Analytics 4 (12/11/2026)
+
+- Se activa solo si está la variable `NEXT_PUBLIC_GA_ID` (el ID de medición `G-...`).
+- **Visitas:** se registran en todas las páginas públicas. No se miden `/admin` ni `/asociacion`.
+- **URLs limpias:** antes de mandarlas a Google se les sacan los parámetros sensibles, por ejemplo el código de gestión (`?code=`) de Mis Reportes. Solo se conservan `region`, `especie`, `tipo` y los `utm_*`.
+- **Eventos:** `publicar_perdida` y `reportar_avistamiento`, con la provincia, para medir conversiones.
+- **Archivos:** `src/lib/analytics.ts` y `src/components/analytics/GoogleAnalytics.tsx`. También se tocaron `layout.tsx` y los formularios de publicar.
+
 ## Pruebas realizadas
 
 - **TypeScript:** sin errores (`tsc --noEmit`).

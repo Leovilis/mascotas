@@ -21,6 +21,7 @@ import { NearbyPartners } from '@/components/partners/NearbyPartners';
 import { sanitizePhoneInput } from '@/lib/validations/contact';
 import { notifyOwnerOfSighting } from '@/services/reports.service';
 import { TurnstileWidget, TurnstileHandle, TURNSTILE_ENABLED } from '@/components/forms/TurnstileWidget';
+import { trackEvent } from '@/lib/analytics';
 
 function SightingForm() {
   const { region } = useRegion();
@@ -110,6 +111,7 @@ function SightingForm() {
       saveCreatedReportId('sighting', newSightingId);
       // Aviso por mail a la familia (si dejó su email al publicar)
       notifyOwnerOfSighting(newSightingId);
+      trackEvent('reportar_avistamiento', { region: region.slug, vinculado: !!validation.data.lost_report_id });
       setCreatedSightingId(newSightingId);
 
       const targetPetName = capitalizeWords(selectedPet?.name || initialPetName || 'tu mascota');
